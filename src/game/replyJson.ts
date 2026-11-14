@@ -9,8 +9,8 @@ import { LOOKUP_LEVELS, type LookupLevel } from './lookup.ts';
 /** a tone of her reply (the vocabulary of CHAT_TONES) */
 type ChatTone = (typeof CHAT_TONES)[number];
 
-/** A segment as it reads: lang is undefined until the key has come (or when it is not 'ja' / 'zh'). */
-export type ReplySegment = { lang?: 'ja' | 'zh'; text: string; gloss: string };
+/** A segment as it reads: lang is undefined until the key has come (or when it is not 'ja' / 'en' / 'zh'). */
+export type ReplySegment = { lang?: 'ja' | 'en' | 'zh'; text: string; gloss: string };
 /**
  * The fields of a reply as they read. tip is '' when there is none; tone is undefined until it has come. tipLevel is the
  * JLPT level of the tip's Japanese: undefined when there is none or it is not a level ('' and unknown values are dropped).
@@ -97,7 +97,7 @@ export function readReplyValue(value: unknown): ReplyFields {
   const rawSegments: unknown[] = Array.isArray(o.segments) ? o.segments : [];
   const segments = rawSegments.map((s): ReplySegment => {
     const x = s && typeof s === 'object' ? (s as Record<string, unknown>) : {};
-    const lang = x.lang === 'ja' || x.lang === 'zh' ? x.lang : undefined;
+    const lang = x.lang === 'ja' || x.lang === 'en' || x.lang === 'zh' ? x.lang : undefined;
     return { lang, text: typeof x.text === 'string' ? x.text : '', gloss: typeof x.gloss === 'string' ? x.gloss : '' };
   });
   const tone = typeof o.tone === 'string' && (CHAT_TONES as readonly string[]).includes(o.tone) ? (o.tone as ChatTone) : undefined;

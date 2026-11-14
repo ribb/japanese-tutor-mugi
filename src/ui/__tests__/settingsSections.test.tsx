@@ -31,7 +31,7 @@ describe('SoundSection', () => {
     expect(r.host.querySelector('h3')?.textContent).toBe('聲音');
     expect(labels(r.host)).toEqual(['靜音', '音樂', '語音', '朗讀回覆']);
     expect(r.host.querySelectorAll('input.slider')).toHaveLength(2);
-    expect([...r.host.querySelectorAll('[data-group]')].map((g) => g.getAttribute('data-group'))).toEqual(['中文', '日文']);
+    expect([...r.host.querySelectorAll('[data-group]')].map((g) => g.getAttribute('data-group'))).toEqual(['中文', '日文', '英文']);
     expect(r.host.textContent).toContain('雲端語音檢查中');
     r.unmount();
   });

@@ -4,12 +4,12 @@
 // (tutorChatKey). Shared by the chat: the mic language (sttLang), the voices (game/tts), the speech on/off and the usage.
 import type { ChatLine } from './chatTypes';
 import {
-  CLAUDE_MODEL_DEFAULT, DEFAULT_PROVIDERS, OPENAI_MODEL_MAX_CHARS, PERSONA_MAX_CHARS, isChatModelId, parseProviderList, personaText,
-  type AiServices, type ChatModelId, type ProviderId,
+  CLAUDE_MODEL_DEFAULT, DEFAULT_PROVIDERS, OPENAI_MODEL_MAX_CHARS, PERSONA_MAX_CHARS, isChatModelId, isTargetLanguage, parseProviderList, personaText,
+  type AiServices, type ChatModelId, type ProviderId, type TargetLanguage,
 } from './claudeProtocol';
 
-export type { AiServices } from './claudeProtocol';
-import { BUILTIN_CHARACTERS, BUILTIN_IDS, LEGACY_YUI_SUBTITLE, defaultPersonaOf, isBuiltinId, type BuiltinId, type TutorCharacterId } from './tutorCharacters';
+export type { AiServices, TargetLanguage } from './claudeProtocol';
+import { BUILTIN_CHARACTERS, BUILTIN_IDS, DEFAULT_EN_TUTOR, LEGACY_YUI_SUBTITLE, defaultPersonaOf, isBuiltinId, type BuiltinId, type TutorCharacterId } from './tutorCharacters';
 import { cleanCharacterVoice, type CharacterVoice } from './characterVoice';
 import { BACKDROP_IDENTITY, BUILTIN_BACKGROUNDS, cleanBackdropView, cleanBackgroundDim, cleanBackgroundId, isBuiltinBackground, newBackgroundId, type BackdropView } from './tutorScene';
 
@@ -28,9 +28,12 @@ export const TUTOR_NAME_MAX = 8;
 export const TUTOR_CHARACTERS_MAX = 8;
 export const TUTOR_NEW_NAME = '新角色';
 export const TUTOR_NEW_SUBTITLE = '日語家教';
+export const TUTOR_NEW_EN_SUBTITLE = '英語家教';
+
+export type SttLang = 'ja-JP' | 'en-US' | 'en-GB' | 'zh-TW';
 
 /**
- * sttLang: the language the mic listens in (日 ja-JP / 中 zh-TW).
+ * sttLang: the language the mic listens in (日 ja-JP / 英 en-US|en-GB / 中 zh-TW).
  * chatModel: the model of her chat; '' = the server's own setting (ANTHROPIC_MODEL).
  * helperModel: the model of 速查 and 小提醒 (the judge and the tip rewrite).
  * providers: the AI services in the order to try them (設定 › AI 服務): Claude, ChatGPT, or both; never empty.
@@ -43,7 +46,7 @@ export const TUTOR_NEW_SUBTITLE = '日語家教';
 export type TutorSettings = {
   characters: Character[];
   activeId: TutorCharacterId;
-  sttLang: 'ja-JP' | 'zh-TW';
+  sttLang: SttLang;
   chatModel: '' | ChatModelId;
   helperModel: ChatModelId;
   providers: ProviderId[];
@@ -59,7 +62,7 @@ export type BackgroundOpt = { dim: number | null; view: BackdropView };
 /**
  * One character (人物): her name, the line under it, her personality (persona: '' = the default of her id, see defaultPersonaOf),
  * her figure view (figureView: the free zoom's view of her, kept for a picture other than the hamster's; null = the default
- * framing) and her voice (voice: null = the 設定 page's voice, see game/characterVoice).
+ * framing), her voice (voice: null = the 設定 page's voice, see game/characterVoice) and her targetLanguage ('ja' by default, or 'en').
  */
 export type Character = {
   id: TutorCharacterId;
@@ -68,6 +71,7 @@ export type Character = {
   persona: string;
   figureView: FigureView | null;
   voice: CharacterVoice;
+  targetLanguage?: TargetLanguage;
 };
 
 /** a saved view of her figure: a scale about her centre and an offset in px (the same model as the zoom's view) */
@@ -196,9 +200,15 @@ export function figureViewStart(custom: boolean, stored: FigureView | null): { s
   return custom && stored ? { ...stored } : { scale: 1, x: 0, y: 0 };
 }
 
-/** the personality sent with her requests: her own text, else the default of her id (むぎ's is the server's own: '') */
+/** the teaching language of a character: 'en' when set to English, else 'ja' (so older saves without targetLanguage read as 'ja') */
+export function characterTargetLanguage(c: Character | null | undefined): TargetLanguage {
+  return c?.targetLanguage === 'en' ? 'en' : 'ja';
+}
+
+/** the personality sent with her requests: her own text, else the default of her id (むぎ's in ja mode is the server's own: '') */
 export function effectivePersona(c: Character): string {
-  return c.persona || defaultPersonaOf(c.id);
+  const lang = characterTargetLanguage(c);
+  return c.persona || defaultPersonaOf(c.id, lang);
 }
 
 /** the id of a character the player adds: a short random id, never a built-in one */
@@ -214,9 +224,11 @@ function cleanCharacter(raw: unknown, id: string): Character {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const builtin = isBuiltinId(id) ? id : null;
   const base = builtin ? BUILTIN_CHARACTERS[builtin] : null;
+  const lang: TargetLanguage = isTargetLanguage(o.targetLanguage) ? o.targetLanguage : (base?.targetLanguage ?? 'ja');
   // 結衣's old default subtitle (a university student) becomes the new default; anything the player typed is kept
-  const subtitle = cleanTutorSubtitle(o.subtitle, base?.subtitle ?? TUTOR_NEW_SUBTITLE);
-  return {
+  const defaultSub = base?.subtitle ?? (lang === 'en' ? TUTOR_NEW_EN_SUBTITLE : TUTOR_NEW_SUBTITLE);
+  const subtitle = cleanTutorSubtitle(o.subtitle, defaultSub);
+  const out: Character = {
     id,
     name: cleanTutorName(o.name, base?.defaultName ?? TUTOR_NEW_NAME),
     subtitle: builtin === 'yui' && subtitle === LEGACY_YUI_SUBTITLE ? base?.subtitle ?? subtitle : subtitle,
@@ -224,6 +236,8 @@ function cleanCharacter(raw: unknown, id: string): Character {
     figureView: cleanFigureView(o.figureView),
     voice: 'voice' in o ? cleanCharacterVoice(o.voice) : (builtin ? BUILTIN_VOICE[builtin] : null),
   };
+  if (lang === 'en') out.targetLanguage = 'en';
+  return out;
 }
 
 /** the characters of a save: the three built-in ones always (added back when missing), then the added ones, at most the maximum */
@@ -285,10 +299,16 @@ export function migrateTutor(raw: unknown): TutorSettings {
     const old = oldBackground === 'custom' ? 'custom' : cleanBackgroundId(oldBackground, added);
     opts[old] = { dim: cleanBackgroundDim(o.backgroundDim), view: cleanBackdropView(o.backgroundView) };
   }
+  const activeChar = characters.find((c) => c.id === activeId) ?? characters[0];
+  const activeLang = characterTargetLanguage(activeChar);
+  let sttLang: SttLang;
+  if (o.sttLang === 'zh-TW') sttLang = 'zh-TW';
+  else if (activeLang === 'en' && (o.sttLang === 'en-US' || o.sttLang === 'en-GB')) sttLang = o.sttLang;
+  else sttLang = activeLang === 'en' ? 'en-US' : 'ja-JP';
   return {
     characters,
     activeId,
-    sttLang: o.sttLang === 'zh-TW' ? 'zh-TW' : 'ja-JP',
+    sttLang,
     chatModel: isChatModelId(o.chatModel) ? o.chatModel : '',
     helperModel: isChatModelId(o.helperModel) ? o.helperModel : DEFAULT_TUTOR.helperModel,
     providers: parseProviderList(o.providers) ?? [...DEFAULT_PROVIDERS],
@@ -330,10 +350,12 @@ export function selectCharacter(s: TutorSettings, id: string): TutorSettings {
 }
 
 /** adds a character (name 新角色, the neutral personality, the 設定 page's voice) and makes it the active one; null at the maximum */
-export function addCharacter(s: TutorSettings, id: string = newCharacterId()): TutorSettings | null {
+export function addCharacter(s: TutorSettings, id: string = newCharacterId(), targetLanguage: TargetLanguage = 'ja'): TutorSettings | null {
   if (s.characters.length >= TUTOR_CHARACTERS_MAX || s.characters.some((c) => c.id === id)) return null;
-  const c: Character = { id, name: TUTOR_NEW_NAME, subtitle: TUTOR_NEW_SUBTITLE, persona: '', figureView: null, voice: null };
-  return { ...s, characters: [...s.characters, c], activeId: id };
+  const c: Character = targetLanguage === 'en'
+    ? { id, name: DEFAULT_EN_TUTOR.defaultName, subtitle: DEFAULT_EN_TUTOR.subtitle, persona: '', figureView: null, voice: { gender: 'female' }, targetLanguage: 'en' }
+    : { id, name: TUTOR_NEW_NAME, subtitle: TUTOR_NEW_SUBTITLE, persona: '', figureView: null, voice: null };
+  return { ...s, characters: [...s.characters, c], activeId: id, ...(targetLanguage === 'en' && s.sttLang === 'ja-JP' ? { sttLang: 'en-US' } : {}) };
 }
 
 /**

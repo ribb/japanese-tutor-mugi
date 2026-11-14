@@ -127,6 +127,14 @@ export type ChatRoleId = (typeof CHAT_ROLES)[number];
 export const CHAT_MODES = ['teacher'] as const;
 export type ChatModeId = (typeof CHAT_MODES)[number];
 
+/** the target teaching language of a character: Japanese (default) or English */
+export const TARGET_LANGUAGES = ['ja', 'en'] as const;
+export type TargetLanguage = (typeof TARGET_LANGUAGES)[number];
+
+export function isTargetLanguage(v: unknown): v is TargetLanguage {
+  return TARGET_LANGUAGES.some((l) => l === v);
+}
+
 /** reply tones (chatTypes.ts Tone): how she says it, read from her meta tag */
 export const CHAT_TONES = [
   'explain', 'agree', 'nod', 'ask', 'confused', 'refuse', 'think', 'greet', 'bye', 'happy', 'shy', 'angry', 'surprised', 'sad',
@@ -139,14 +147,14 @@ export type ChatContext = { timeOfDay?: string };
  * The user's message with the time and mode as a bracketed prefix, e.g. ［情境：晚上 9 點］［模式：日語老師］.
  * Built once when the message is sent and stored on its chat line (ChatLine.sent): later requests re-send those exact bytes.
  */
-export function userTurn(text: string, ctx: ChatContext, mode: ChatModeId): string {
+export function userTurn(text: string, ctx: ChatContext, mode: ChatModeId, targetLanguage: TargetLanguage = 'ja'): string {
   const prefix = ctx.timeOfDay ? `［情境：${ctx.timeOfDay}］` : '';
-  const modeTag = mode === 'teacher' ? '［模式：日語老師］' : '';
+  const modeTag = mode === 'teacher' ? (targetLanguage === 'en' ? '［模式：英語老師］' : '［模式：日語老師］') : '';
   return `${prefix}${modeTag}${text}`;
 }
 
-/** one segment of her reply: lang 'ja' is what she says (voiced), gloss its short Chinese meaning (shown in brackets, not voiced) */
-export type ChatSegment = { lang: 'ja' | 'zh'; text: string; gloss: string };
+/** one segment of her reply: lang 'ja' or 'en' is what she says (voiced), gloss its short Chinese meaning (shown in brackets, not voiced) */
+export type ChatSegment = { lang: 'ja' | 'en' | 'zh'; text: string; gloss: string };
 /**
  * Her whole reply as Claude writes it (Structured Outputs, the schema in server/claudeChat.ts CHAT_REPLY_SCHEMA). The server
  * sends it back as the `done` text (canonical form, see game/replyJson.ts); tone is left out only in a cut reply.

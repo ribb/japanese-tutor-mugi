@@ -26,7 +26,7 @@ export type BrainRequest = {
 export type BrainReplyFull = BrainReply & {
   /** what is voiced (teacher mode: the Japanese only); undefined = the whole text */
   spoken?: string;
-  segments?: { text: string; lang: 'zh' | 'ja' }[];
+  segments?: { text: string; lang: 'zh' | 'ja' | 'en' }[];
   /** 小提醒 (teacher mode): its own line, never voiced */
   tip?: string;
   tipJa?: string[];

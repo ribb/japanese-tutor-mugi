@@ -4,7 +4,7 @@
 // The anchor table (ANCHORS) is the one place the numbers of the classroom stand live: numbers are shares of the classroom picture
 // (game/tutorScene DEFAULT_SCENE): width = share of its width, centreX = share of its width, anchorY = share of its height, and
 // pictureAnchor = the share of the character's own picture height that sits at anchorY (1 = the picture's bottom, its feet).
-import type { ChatRoleId } from './claudeProtocol';
+import type { ChatRoleId, TargetLanguage } from './claudeProtocol';
 import type { FigureAnchor } from './tutorScene';
 
 export type TutorCharacterId = string;
@@ -15,6 +15,15 @@ export const isBuiltinId = (id: string): id is BuiltinId => (BUILTIN_IDS as read
 
 /** the default personality of a character the player adds (人物 ＋): the box is empty, and this text is what she is told */
 export const NEUTRAL_PERSONA = '親切、有耐心的日語家教，說話自然、口語。';
+/** the default personality of an English tutor character when no custom persona is set */
+export const NEUTRAL_EN_PERSONA = '熱情開朗的美國留學生，說話使用自然的美式日常英語，喜歡咖啡、旅行和電影，很會鼓勵人開口說英文。風格保持自然、非露骨，絕不涉及色情或性暗示。不閒聊太久，會把話題帶回練習。';
+/** a preset English tutor character definition that users can apply or switch to */
+export const DEFAULT_EN_TUTOR = {
+  defaultName: '艾瑪',
+  subtitle: '留學生・英語家教',
+  targetLanguage: 'en' as TargetLanguage,
+  defaultPersona: NEUTRAL_EN_PERSONA,
+} as const;
 
 /** the anchor of each built-in character on the classroom's lectern (the numbers are explained at the top of this file) */
 export const ANCHORS: Record<BuiltinId, FigureAnchor> = {
@@ -41,21 +50,25 @@ export type BuiltinCharacter = {
   defaultPersona: string;
   /** the pictures: the hamster's are the mouth overlays of tutor.json; 結衣 and 悠真 have one picture per mouth state */
   picture: 'hamster' | { open: string; closed: string };
+  /** the default teaching language of this built-in character */
+  targetLanguage?: TargetLanguage;
 };
 
 export const BUILTIN_CHARACTERS: Record<BuiltinId, BuiltinCharacter> = {
   mugi: {
-    id: 'mugi', role: 'Mugi', artDir: 'characters/mugi', defaultName: 'むぎ', subtitle: '倉鼠・日語家教', defaultPersona: '', picture: 'hamster',
+    id: 'mugi', role: 'Mugi', artDir: 'characters/mugi', defaultName: 'むぎ', subtitle: '倉鼠・日語家教', defaultPersona: '', picture: 'hamster', targetLanguage: 'ja',
   },
   yui: {
     id: 'yui', role: 'Mugi', artDir: 'characters/yui', defaultName: '結衣', subtitle: '高中生・日語家教',
     defaultPersona: '十八歲、已成年的日本高三女生，大阪出身，說話都用關西腔（大阪腔）；正在準備升學考試，喜歡咖啡廳、拍照和追劇，說話溫柔活潑、偶爾會開點小玩笑，像同齡朋友一樣陪你練日語。風格保持自然、非露骨，絕不涉及色情或性暗示。不閒聊太久，會把話題帶回練習。',
     picture: { open: 'a.webp', closed: 'm.webp' },
+    targetLanguage: 'ja',
   },
   yuma: {
     id: 'yuma', role: 'Mugi', artDir: 'characters/yuma', defaultName: '悠真', subtitle: '大學生・日語家教',
     defaultPersona: '爽朗隨和的日本男大學生，大學三年級，喜歡籃球、音樂和到處吃美食，說話輕鬆幽默、很會鼓勵人，像學長一樣陪你練日語。風格保持自然、非露骨，絕不涉及色情或性暗示。不閒聊太久，會把話題帶回練習。',
     picture: { open: 'a.webp', closed: 'm.webp' },
+    targetLanguage: 'ja',
   },
 };
 
@@ -66,7 +79,8 @@ export const LEGACY_YUI_SUBTITLE = '大學生・日語家教';
 export const TUTOR_CHARACTER = BUILTIN_CHARACTERS.mugi;
 
 /** the default personality of a character's id: a built-in's text, else the neutral text of an added character */
-export function defaultPersonaOf(id: TutorCharacterId): string {
+export function defaultPersonaOf(id: TutorCharacterId, targetLanguage: TargetLanguage = 'ja'): string {
+  if (targetLanguage === 'en') return NEUTRAL_EN_PERSONA;
   return isBuiltinId(id) ? BUILTIN_CHARACTERS[id].defaultPersona : NEUTRAL_PERSONA;
 }
 

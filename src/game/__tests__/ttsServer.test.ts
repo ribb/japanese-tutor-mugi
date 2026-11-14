@@ -152,7 +152,7 @@ describe('engine configuration and status', () => {
 
   it('status reports booleans and the voice lists, never the keys', () => {
     const s = ttsStatus({ ...ALL, googleKey: '' });
-    expect(s).toEqual({ azure: true, google: false, voicevox: false, voices: { ...TTS_VOICES, voicevox: { zh: [], ja: [] } } });
+    expect(s).toEqual({ edge: true, azure: true, google: false, voicevox: false, voices: { ...TTS_VOICES, voicevox: { zh: [], ja: [], en: [] } } });
     expect(JSON.stringify(s)).not.toContain('SECRET');
   });
 

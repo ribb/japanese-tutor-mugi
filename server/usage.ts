@@ -74,6 +74,7 @@ export function googleTier(voice: string): string {
  */
 export function ttsBucket(engine: TtsEngine, voice: string): { engine: TtsEngine; tier: string } {
   if (engine === 'voicevox') return { engine, tier: 'voicevox' };
+  if (engine === 'edge') return { engine, tier: 'edge' };
   return engine === 'azure' ? { engine, tier: 'neural' } : { engine, tier: googleTier(voice) };
 }
 
@@ -199,8 +200,8 @@ export type ClaudeCounter = {
   estimated: number;
 };
 export type MonthUsage = {
-  /** voicevox is created on its first use (a month with no VOICEVOX speech has no such key) */
-  tts: { google: Record<string, TtsCounter>; azure: Record<string, TtsCounter>; voicevox?: Record<string, TtsCounter> };
+  /** voicevox / edge are created on their first use */
+  tts: { google: Record<string, TtsCounter>; azure: Record<string, TtsCounter>; voicevox?: Record<string, TtsCounter>; edge?: Record<string, TtsCounter> };
   claude: Record<string, ClaudeCounter>;
 };
 /**

@@ -44,7 +44,7 @@ function CloudVoiceRow({ label, engine, lang, value, onChange }: { label: string
  * One language's speech in ⚙️ 聲音: its engine, its voice (the picker of that engine), its own 語速 and 音調. 試聽 speaks a
  * sample of this language with these settings.
  */
-export function LangVoiceGroup({ title, lang, tts, cloud }: { title: string; lang: Lang; tts: TtsSettings; cloud: Record<CloudEngine, boolean> | null }) {
+export function LangVoiceGroup({ title, lang, tts, cloud }: { title: string; lang: Lang; tts: TtsSettings; cloud: Partial<Record<CloudEngine, boolean>> | null }) {
   const s: LangVoice = tts[lang];
   const setVoice = (engine: TtsEngine, voice: string) => setLangSettings(lang, { voices: { ...s.voices, [engine]: voice } });
   // VOICEVOX credit (its terms ask for the character name wherever the voice is used): only while it is the Japanese voice
@@ -57,7 +57,7 @@ export function LangVoiceGroup({ title, lang, tts, cloud }: { title: string; lan
         <div className="as-seg" role="radiogroup" aria-label={`${title}語音引擎`}>
           {ENGINE_CHOICES[lang].map(({ engine, label }) => (
             <button key={engine} role="radio" aria-checked={s.engine === engine} className={s.engine === engine ? 'on' : ''}
-              disabled={engine !== 'browser' && !cloud?.[engine]} onClick={() => setLangSettings(lang, { engine })}>{label}</button>
+              disabled={engine !== 'browser' && engine !== 'edge' && !cloud?.[engine]} onClick={() => setLangSettings(lang, { engine })}>{label}</button>
           ))}
         </div>
       </div>

@@ -1,42 +1,48 @@
 // 速查 (quick Japanese lookup): the player asks how to say something, or about a word or grammar point. Not the character
 // chat: nothing here touches her chat history. Pure parsing and history helpers (no DOM at import time) so the dev server
 // (server/claudeChat.ts) and the phone share them. The history lives in localStorage, per device; every access is guarded.
-import { apiFetch } from './apiFetch';
-import type { AiServices } from './claudeProtocol.ts';
+import { apiFetch } from './apiFetch.ts';
+import type { AiServices, TargetLanguage } from './claudeProtocol.ts';
 
 export const LOOKUP_MAX_CHARS = 200;
 export const LOOKUP_HISTORY_MAX = 50;
 export const LOOKUP_KEY = 'mugi.lookup.v1';
-export const LOOKUP_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1', '級外'] as const;
+export const JLPT_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1', '級外'] as const;
+export const CEFR_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', '級外'] as const;
+export const LOOKUP_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2', '級外'] as const;
 export type LookupLevel = (typeof LOOKUP_LEVELS)[number];
 
 export type LookupItem = { ja: string; zh: string; level: LookupLevel; note?: string };
 export type LookupGrammar = { point: string; level: LookupLevel; explain: string };
 export type LookupExample = { ja: string; zh: string };
-/** `ja` fields keep their <ja>…</ja> wrapper and readings (for display and speech); other fields are plain Chinese */
+/** `ja` fields keep their <ja>…</ja> or <en>…</en> wrapper and readings (for display and speech); other fields are plain Chinese */
 export type LookupAnswer = { message?: string; items: LookupItem[]; grammar: LookupGrammar[]; examples: LookupExample[] };
 
 export type LookupEntry = { id: string; q: string; at: number; answer: LookupAnswer | null; raw?: string };
 
-/** a level as the JLPT lists name it; anything else (口語, 俗語, 外來語, unknown) is 級外 */
+/** a level as the JLPT (N1–N5) or CEFR (A1–C2) lists name it; anything else (口語, 俗語, 外來語, unknown) is 級外 */
 export function normalizeLevel(v: unknown): LookupLevel {
   if (typeof v !== 'string') return '級外';
-  const m = /^\s*n\s*([1-5])\s*$/i.exec(v);
-  return m ? (`N${m[1]}` as LookupLevel) : '級外';
+  const jlpt = /^\s*n\s*([1-5])\s*$/i.exec(v);
+  if (jlpt) return `N${jlpt[1]}` as LookupLevel;
+  const cefr = /^\s*([abc])\s*([12])\s*$/i.exec(v);
+  if (cefr) return `${cefr[1].toUpperCase()}${cefr[2]}` as LookupLevel;
+  return '級外';
 }
 
-/** the badge text shown in the sheet: 「N4」 or 「級外」 */
+/** the badge text shown in the sheet: 「N4」, 「B1」, or 「級外」 */
 export const levelBadge = (level: LookupLevel): string => `「${level}」`;
 
-/** a field with the <ja> tags removed (for display of Chinese text, which must never show raw tags) */
-export const stripJaTags = (s: string): string => s.replace(/<\/?ja>/g, '');
+/** a field with the <ja> and <en> tags removed (for display of Chinese text, which must never show raw tags) */
+export const stripJaTags = (s: string): string => s.replace(/<\/?(?:ja|en)>/g, '');
 
-/** a Japanese field wrapped in <ja>…</ja> (the model sometimes leaves the tags off) */
+/** a target-language field wrapped in <ja>…</ja> (the model sometimes leaves the tags off or uses <en>…</en>) */
 function jaField(v: unknown): string {
   if (typeof v !== 'string') return '';
   const t = v.trim();
   if (!t) return '';
-  return /<ja>[\s\S]*<\/ja>/.test(t) ? t : `<ja>${stripJaTags(t)}</ja>`;
+  if (/<ja>[\s\S]*<\/ja>/.test(t)) return t;
+  return `<ja>${stripJaTags(t)}</ja>`;
 }
 
 const textField = (v: unknown): string => (typeof v === 'string' ? stripJaTags(v).trim() : '');
@@ -79,10 +85,10 @@ export function parseLookupText(text: string): LookupAnswer | null {
   return { ...(message ? { message } : {}), items, grammar, examples };
 }
 
-/** the Japanese of a <ja> field for speech: no tags, no readings (readings are for display only) */
-export const jaSpeakable = (s: string): string => s.replace(/<\/?ja>/g, '').replace(/\[[^[\]]*\]/g, '');
-/** the Japanese of a <ja> field for display (rubyNodes reads the readings) */
-export const jaDisplay = (s: string): string => s.replace(/<\/?ja>/g, '');
+/** the target language text of a <ja>/<en> field for speech: no tags, no readings (readings are for display only) */
+export const jaSpeakable = (s: string): string => s.replace(/<\/?(?:ja|en)>/g, '').replace(/\[[^[\]]*\]/g, '');
+/** the target language text of a <ja>/<en> field for display (rubyNodes reads the readings) */
+export const jaDisplay = (s: string): string => s.replace(/<\/?(?:ja|en)>/g, '');
 
 /** a new lookup goes first; the list is capped (oldest dropped) */
 export function addLookup(list: LookupEntry[], entry: LookupEntry, max = LOOKUP_HISTORY_MAX): LookupEntry[] {
@@ -140,14 +146,25 @@ export type LookupResult =
  * POST /api/lookup. `model`: the 速查 model (the settings' 速查與小提醒 model); absent, the server's default. Never throws:
  * a failure comes back as { ok:false, message } for the sheet to show.
  */
-export async function askLookup(q: string, signal?: AbortSignal, model?: string, services?: AiServices): Promise<LookupResult> {
+export async function askLookup(
+  q: string,
+  signal?: AbortSignal,
+  model?: string,
+  services?: AiServices,
+  targetLanguage?: TargetLanguage,
+): Promise<LookupResult> {
   const text = q.trim();
   if (!text) return { ok: false, message: '請輸入要查的詞或句子' };
   try {
     const r = await apiFetch('/api/lookup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: text, ...(model ? { model } : {}), ...(services ?? {}) }),
+      body: JSON.stringify({
+        q: text,
+        ...(model ? { model } : {}),
+        ...(targetLanguage === 'en' ? { targetLanguage: 'en' } : {}),
+        ...(services ?? {}),
+      }),
       signal,
     });
     const j = (await r.json().catch(() => null)) as { ok?: unknown; answer?: unknown; raw?: unknown; message?: unknown } | null;

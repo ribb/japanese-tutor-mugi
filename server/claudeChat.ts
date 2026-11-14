@@ -15,16 +15,18 @@ import Anthropic from '@anthropic-ai/sdk';
 import { loadEnv, type Plugin } from 'vite';
 import {
   CHAT_MAX_MESSAGES, CHAT_MAX_MESSAGE_CHARS, CHAT_MODES, CHAT_ROLES, CHAT_TONES, CLAUDE_MODEL_DEFAULT, NAME_MAX_CHARS, PERSONA_MAX_CHARS,
-  isChatModelId, nameText, personaText, type ChatContext, type ChatModeId, type ChatRoleId,
+  isChatModelId, isTargetLanguage, nameText, personaText, type ChatContext, type ChatModeId, type ChatRoleId, type TargetLanguage,
 } from '../src/game/claudeProtocol.ts';
-import { LOOKUP_MAX_CHARS, parseLookupText, type LookupAnswer } from '../src/game/lookup.ts';
+import { CEFR_LEVELS, LOOKUP_MAX_CHARS, parseLookupText, type LookupAnswer } from '../src/game/lookup.ts';
 import { fallbackWorthy, firstServing, parseRouting, routingOf, type Routing, type Service } from './aiChain.ts';
 import { createOAuth } from './openai/oauth.ts';
 import { createChatGpt, type ChatGptService } from './openai/service.ts';
 import { dataDirectory, defaultProtector, openCredentialStore } from './openai/credentials.ts';
 import { handleAuthCallback, handleOpenAiApi } from './openai/routes.ts';
-import { JUDGE_PROMPT, LOOKUP_SYSTEM, TIP_FIX_SYSTEM, defaultPersona, reminderPrompt, systemPrompt } from './prompts.ts';
-import { fixReplyJson, isChineseTip, wrapJapanese } from './replyFix.ts';
+import {
+  JUDGE_PROMPT, JUDGE_PROMPT_EN, LOOKUP_SYSTEM, LOOKUP_SYSTEM_EN, TIP_FIX_SYSTEM, TIP_FIX_SYSTEM_EN, defaultPersona, reminderPrompt, systemPrompt,
+} from './prompts.ts';
+import { fixReplyJson, isChineseEnTip, isChineseTip, wrapJapanese } from './replyFix.ts';
 import { fillReadings, loadAnalyzer } from './readings.ts';
 import { dailyLimitHit, getUsageStore, type ClaudeUsage, type UsageStore } from './usage.ts';
 import { guardApi, guardOptionsFrom } from './apiGuard.ts';
@@ -45,6 +47,7 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 /** `model`, `persona` and `name` are optional: absent, the server's own model, the default personality and the default name are used */
 export type ChatBody = {
   messages: ChatMessage[]; role: ChatRoleId; mode: ChatModeId; context: ChatContext; model?: string; persona?: string; name?: string;
+  targetLanguage?: TargetLanguage;
   /** the services to try, in order (see server/aiChain.ts) */
   routing: Routing;
 };
@@ -308,6 +311,18 @@ export function bodyModel(raw: string): string | undefined {
   return parseModel((JSON.parse(raw) as Record<string, unknown>).model);
 }
 
+/** The optional `targetLanguage` of a body: `'ja' | 'en'`, or undefined when absent/null. */
+export function parseTargetLanguage(v: unknown): TargetLanguage | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!isTargetLanguage(v)) throw bad('不支援的教學語言');
+  return v;
+}
+
+/** The `targetLanguage` of a raw JSON body that another parser has already checked, defaulting to `'ja'`. */
+export function bodyTargetLanguage(raw: string): TargetLanguage {
+  return parseTargetLanguage((JSON.parse(raw) as Record<string, unknown>).targetLanguage) ?? 'ja';
+}
+
 /**
  * The optional `persona` of a chat body: the player's personality text, control characters removed, trimmed, 1 to
  * PERSONA_MAX_CHARS characters (longer is a 400). `<` and `>` become the full-width ＜ ＞, so the text cannot close or
@@ -360,10 +375,13 @@ export function parseChatBody(raw: string): ChatBody {
   const model = parseModel(b.model);
   const persona = parsePersona(b.persona);
   const name = parseName(b.name);
+  const targetLanguage = parseTargetLanguage(b.targetLanguage);
   const routing = parseRouting(b);
   return {
     messages, role: b.role as ChatRoleId, mode: b.mode as ChatModeId, context,
-    ...(model ? { model } : {}), ...(persona ? { persona } : {}), ...(name ? { name } : {}), routing,
+    ...(model ? { model } : {}), ...(persona ? { persona } : {}), ...(name ? { name } : {}),
+    ...(targetLanguage === 'en' ? { targetLanguage: 'en' } : {}),
+    routing,
   };
 }
 
@@ -377,10 +395,10 @@ export function parseChatBody(raw: string): ChatBody {
  * is the end of the stable history. The newest user turn carries no breakpoint: its bytes (the reminder) are volatile and
  * are re-sent without it next turn, so caching them would never hit again.
  */
-export function upstreamMessages(messages: ChatMessage[]): BetaMessageStreamParams['messages'] {
+export function upstreamMessages(messages: ChatMessage[], targetLanguage: TargetLanguage = 'ja'): BetaMessageStreamParams['messages'] {
   const n = messages.length;
   return messages.map((m, i) => {
-    const text = i === n - 1 ? `${m.content}\n\n<reminder>${reminderPrompt()}</reminder>` : m.content;
+    const text = i === n - 1 ? `${m.content}\n\n<reminder>${reminderPrompt(targetLanguage)}</reminder>` : m.content;
     if (i === n - 2) {
       return { role: m.role, content: [{ type: 'text', text, cache_control: { type: 'ephemeral' } }] };
     }
@@ -419,25 +437,51 @@ export const CHAT_REPLY_SCHEMA = {
   },
 } as const;
 
+/** English-mode chat reply schema (Structured Outputs): segments use `'en' | 'zh'` and tipLevel uses CEFR (`A1`–`C2` or `級外`). */
+export const CHAT_REPLY_SCHEMA_EN = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['segments', 'tip', 'tipLevel', 'tone'],
+  properties: {
+    segments: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['lang', 'text', 'gloss'],
+        properties: {
+          lang: { type: 'string', enum: ['en', 'zh'] },
+          text: { type: 'string' },
+          gloss: { type: 'string' },
+        },
+      },
+    },
+    tip: { type: 'string' },
+    tipLevel: { type: 'string', enum: ['', ...CEFR_LEVELS] },
+    tone: { type: 'string', enum: [...CHAT_TONES] },
+  },
+} as const;
+
 /**
  * The upstream request for a validated body: model, the stable system block with its breakpoint, and the messages from
  * upstreamMessages. No top-level cache_control: the automatic marker would sit on the volatile newest turn.
  */
 export function chatRequest(body: ChatBody, model: string): LlmChatRequest {
+  const isEn = body.targetLanguage === 'en';
   return {
     model,
     max_tokens: 2000,
     // the schema's name for ChatGPT's strict json_schema (the Anthropic provider does not send it)
     schemaName: 'mugi_reply',
     // the reply is a JSON object of CHAT_REPLY_SCHEMA (Structured Outputs); effort low: fast, chatty replies
-    output_config: { effort: 'low', format: { type: 'json_schema', schema: CHAT_REPLY_SCHEMA } },
+    output_config: { effort: 'low', format: { type: 'json_schema', schema: isEn ? CHAT_REPLY_SCHEMA_EN : CHAT_REPLY_SCHEMA } },
     betas: [FALLBACK_BETA],
     // retried on another model if a safety classifier declines. If the API ever rejects a request that has both this
     // fallbacks chain and an output format (structured outputs), delete this line and the beta above: the schema is what
     // keeps the reply's shape, the fallback only adds a retry.
     fallbacks: 'default',
-    system: [{ type: 'text', text: systemPrompt(body.role, body.persona, body.name), cache_control: { type: 'ephemeral' } }],
-    messages: upstreamMessages(body.messages),
+    system: [{ type: 'text', text: systemPrompt(body.role, body.persona, body.name, body.targetLanguage), cache_control: { type: 'ephemeral' } }],
+    messages: upstreamMessages(body.messages, body.targetLanguage),
   };
 }
 
@@ -540,7 +584,12 @@ export const JUDGE_SCHEMA = {
 async function handleJudge(req: IncomingMessage, res: ServerResponse, root: string, mode: string) {
   if (req.method !== 'POST') return json(res, 404, { error: 'not_found', message: '沒有這個 API' });
   // the body: the judge fields, the routing, and the Claude model of the phone's 小提醒 (without one, the server's own)
-  const parsed = await readRequest(req, res, (raw) => ({ body: parseJudgeBody(raw), routing: routingOf(raw), claudeModel: bodyModel(raw) }));
+  const parsed = await readRequest(req, res, (raw) => ({
+    body: parseJudgeBody(raw),
+    routing: routingOf(raw),
+    claudeModel: bodyModel(raw),
+    targetLanguage: bodyTargetLanguage(raw),
+  }));
   if (!parsed) return;
   const { body } = parsed;
   const services = await servicesOrAnswer(res, parsed.routing, { root, mode, claudeModel: parsed.claudeModel, reserveUsd: HELPER_RESERVE_USD });
@@ -560,7 +609,7 @@ async function handleJudge(req: IncomingMessage, res: ServerResponse, root: stri
             effort: 'low',
             format: { type: 'json_schema', schema: JUDGE_SCHEMA },
           },
-          system: JUDGE_PROMPT,
+          system: parsed.targetLanguage === 'en' ? JUDGE_PROMPT_EN : JUDGE_PROMPT,
           messages: [{ role: 'user', content: `目標：${body.target}\n他說：${body.said}` }],
           schemaName: 'mugi_judge',
         }, { timeout: JUDGE_TIMEOUT_MS });
@@ -620,19 +669,22 @@ export async function rewriteTipWith(
   tip: string,
   onUsage?: (model: string, usage: ClaudeUsage) => void,
   model: string = TIP_FIX_MODEL,
+  targetLanguage: TargetLanguage = 'ja',
 ): Promise<string | null> {
+  const isEn = targetLanguage === 'en';
   const msg = await provider.complete({
     model,
     max_tokens: TIP_FIX_MAX_TOKENS,
     thinking: { type: 'disabled' },
     output_config: { format: { type: 'json_schema', schema: TIP_FIX_SCHEMA } },
-    system: TIP_FIX_SYSTEM,
+    system: isEn ? TIP_FIX_SYSTEM_EN : TIP_FIX_SYSTEM,
     messages: [{ role: 'user', content: tip }],
     schemaName: 'mugi_tip',
   }, { timeout: TIP_FIX_TIMEOUT_MS });
   onUsage?.(msg.model || model, msg.usage as ClaudeUsage);
   const inner = tipFromFixReply(msg.text);
   if (!inner) return null;
+  if (isEn) return isChineseEnTip(inner) ? inner : null;
   const fixed = await fillReadings(wrapJapanese(inner), (w) => console.warn(w));
   return isChineseTip(fixed) ? fixed : null;
 }
@@ -642,8 +694,9 @@ export function rewriteTip(
   client: Anthropic,
   tip: string,
   onUsage?: (model: string, usage: ClaudeUsage) => void,
+  targetLanguage: TargetLanguage = 'ja',
 ): Promise<string | null> {
-  return rewriteTipWith(anthropicProvider(client), tip, onUsage);
+  return rewriteTipWith(anthropicProvider(client), tip, onUsage, TIP_FIX_MODEL, targetLanguage);
 }
 
 /** Validate the fix-tip body; throws HttpError(400) on anything malformed. */
@@ -658,7 +711,12 @@ export function parseFixTipBody(raw: string): string {
 
 async function handleFixTip(req: IncomingMessage, res: ServerResponse, root: string, mode: string) {
   if (req.method !== 'POST') return json(res, 404, { error: 'not_found', message: '沒有這個 API' });
-  const parsed = await readRequest(req, res, (raw) => ({ tip: parseFixTipBody(raw), routing: routingOf(raw), claudeModel: bodyModel(raw) }));
+  const parsed = await readRequest(req, res, (raw) => ({
+    tip: parseFixTipBody(raw),
+    routing: routingOf(raw),
+    claudeModel: bodyModel(raw),
+    targetLanguage: bodyTargetLanguage(raw),
+  }));
   if (!parsed) return;
   const services = await servicesOrAnswer(res, parsed.routing, { root, mode, claudeModel: parsed.claudeModel ?? TIP_FIX_MODEL, reserveUsd: HELPER_RESERVE_USD });
   if (!services) return;
@@ -669,7 +727,13 @@ async function handleFixTip(req: IncomingMessage, res: ServerResponse, root: str
   try {
     const r = await firstServing(services, async (svc) => {
       try {
-        return await rewriteTipWith(svc.provider, parsed.tip, svc.spend ? (m, u) => usage.recordClaude(m, u) : undefined, svc.model);
+        return await rewriteTipWith(
+          svc.provider,
+          parsed.tip,
+          svc.spend ? (m, u) => usage.recordClaude(m, u) : undefined,
+          svc.model,
+          parsed.targetLanguage,
+        );
       } catch (e) {
         if (svc.spend) usage.recordClaudeError(svc.model);
         throw e;
@@ -677,7 +741,7 @@ async function handleFixTip(req: IncomingMessage, res: ServerResponse, root: str
     });
     if (!r.ok) return upstreamFailure(res, r);
     return r.value === null
-      ? json(res, 200, { ok: false, message: '仍是日文，保留原本的小提醒', provider: r.served.id })
+      ? json(res, 200, { ok: false, message: '仍是外文，保留原本的小提醒', provider: r.served.id })
       : json(res, 200, { ok: true, tip: r.value, provider: r.served.id });
   } finally {
     releaseChatSlot();
@@ -813,7 +877,9 @@ async function handleChat(req: IncomingMessage, res: ServerResponse, root: strin
         }
         // the reply as shown and stored: her JSON with the readings filled and the tip read (server/replyFix.ts). tipRewrite:
         // the tip is to be rewritten in the background (the client calls /api/chat/fix-tip once for it)
-        const fixed = clientGone ? { json: final.text, tipRewrite: false } : await fixReplyJson(final.text, { log: (m) => console.warn(m) });
+        const fixed = clientGone
+          ? { json: final.text, tipRewrite: false }
+          : await fixReplyJson(final.text, { log: (m) => console.warn(m), targetLanguage: body.targetLanguage });
         send({ type: 'done', text: fixed.json, usage: final.usage, tipRewrite: fixed.tipRewrite, provider: svc.id, model: svc.model });
       },
       failed: (svc, e) => {
@@ -961,6 +1027,52 @@ export const LOOKUP_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+/** English-mode lookup reply schema (Structured Outputs): level uses CEFR (`A1`–`C2` or `級外`). */
+export const LOOKUP_SCHEMA_EN = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          ja: { type: 'string' },
+          zh: { type: 'string' },
+          level: { type: 'string', enum: [...CEFR_LEVELS] },
+          note: { type: 'string' },
+        },
+        required: ['ja', 'zh', 'level', 'note'],
+        additionalProperties: false,
+      },
+    },
+    grammar: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          point: { type: 'string' },
+          level: { type: 'string', enum: [...CEFR_LEVELS] },
+          explain: { type: 'string' },
+        },
+        required: ['point', 'level', 'explain'],
+        additionalProperties: false,
+      },
+    },
+    examples: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { ja: { type: 'string' }, zh: { type: 'string' } },
+        required: ['ja', 'zh'],
+        additionalProperties: false,
+      },
+    },
+    message: { type: 'string' },
+  },
+  required: ['items', 'grammar', 'examples', 'message'],
+  additionalProperties: false,
+} as const;
+
 /** lookups running at the same time (their own count: separate from the chat slots) */
 export const LOOKUP_MAX_ACTIVE = 2;
 let lookupActive = 0;
@@ -1004,13 +1116,15 @@ export async function lookupAnswerWith(
   q: string,
   onUsage?: (model: string, usage: ClaudeUsage) => void,
   model: string = LOOKUP_MODEL,
+  targetLanguage: TargetLanguage = 'ja',
 ): Promise<{ answer: LookupAnswer | null; raw: string }> {
+  const isEn = targetLanguage === 'en';
   const msg = await provider.complete({
     model,
     max_tokens: LOOKUP_MAX_TOKENS,
     thinking: { type: 'disabled' },
-    output_config: { format: { type: 'json_schema', schema: LOOKUP_SCHEMA } },
-    system: LOOKUP_SYSTEM,
+    output_config: { format: { type: 'json_schema', schema: isEn ? LOOKUP_SCHEMA_EN : LOOKUP_SCHEMA } },
+    system: isEn ? LOOKUP_SYSTEM_EN : LOOKUP_SYSTEM,
     messages: [{ role: 'user', content: q }],
     schemaName: 'mugi_lookup',
   }, { timeout: LOOKUP_TIMEOUT_MS });
@@ -1018,6 +1132,7 @@ export async function lookupAnswerWith(
   const raw = msg.text.trim();
   const answer = parseLookupText(raw);
   if (!answer) return { answer: null, raw };
+  if (isEn) return { answer, raw };
   const log = (m: string) => console.warn(m);
   for (const it of answer.items) it.ja = await fillReadings(it.ja, log);
   for (const g of answer.grammar) if (g.point) g.point = await fillReadings(g.point, log);
@@ -1030,13 +1145,19 @@ export function lookupAnswer(
   client: Anthropic,
   q: string,
   onUsage?: (model: string, usage: ClaudeUsage) => void,
+  targetLanguage: TargetLanguage = 'ja',
 ): Promise<{ answer: LookupAnswer | null; raw: string }> {
-  return lookupAnswerWith(anthropicProvider(client), q, onUsage);
+  return lookupAnswerWith(anthropicProvider(client), q, onUsage, LOOKUP_MODEL, targetLanguage);
 }
 
 async function handleLookup(req: IncomingMessage, res: ServerResponse, root: string, mode: string) {
   if (req.method !== 'POST') return json(res, 404, { error: 'not_found', message: '沒有這個 API' });
-  const parsed = await readRequest(req, res, (raw) => ({ q: parseLookupBody(raw), routing: routingOf(raw), claudeModel: bodyModel(raw) }));
+  const parsed = await readRequest(req, res, (raw) => ({
+    q: parseLookupBody(raw),
+    routing: routingOf(raw),
+    claudeModel: bodyModel(raw),
+    targetLanguage: bodyTargetLanguage(raw),
+  }));
   if (!parsed) return;
   const services = await servicesOrAnswer(res, parsed.routing, { root, mode, claudeModel: parsed.claudeModel ?? LOOKUP_MODEL, reserveUsd: HELPER_RESERVE_USD });
   if (!services) return;
@@ -1046,7 +1167,13 @@ async function handleLookup(req: IncomingMessage, res: ServerResponse, root: str
     if (!takeLookupSlot()) return json(res, 429, { error: 'rate_limit', message: '查詢太頻繁，稍後再試' });
     const r = await firstServing(services, async (svc) => {
       try {
-        return await lookupAnswerWith(svc.provider, parsed.q, svc.spend ? (m, u) => usage.recordClaude(m, u) : undefined, svc.model);
+        return await lookupAnswerWith(
+          svc.provider,
+          parsed.q,
+          svc.spend ? (m, u) => usage.recordClaude(m, u) : undefined,
+          svc.model,
+          parsed.targetLanguage,
+        );
       } catch (e) {
         if (svc.spend) usage.recordClaudeError(svc.model);
         throw e;

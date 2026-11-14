@@ -2,28 +2,31 @@
 // shows the Japanese (ruby readings, 🔊 to hear it), the meaning and usage in Chinese, a JLPT badge and examples. Lookups are
 // kept in a local history (game/lookup). Not the character chat: nothing here reaches her chat or her voice.
 import { useRef, useState } from 'react';
+import type { TargetLanguage } from '../game/claudeProtocol';
 import {
   addLookup, askLookup, clearLookups, jaDisplay, jaSpeakable, levelBadge, LOOKUP_MAX_CHARS, loadLookups, newLookupId, removeLookup, saveLookups,
   stripJaTags, type LookupAnswer, type LookupEntry,
 } from '../game/lookup';
-import { aiServicesOf, loadTutor } from '../game/tutor';
+import { activeCharacter, aiServicesOf, characterTargetLanguage, loadTutor } from '../game/tutor';
 import { speakReply, stopSpeaking } from '../game/tts';
 import { rubyNodes } from './Furigana';
 import { speechNoteText, useSpeechInput } from './useSpeechInput';
 import { IconClose, IconMic, IconSpeaker } from './icons';
 import { useSheetKeyboard } from './useSheetKeyboard';
 
-type Lang = 'zh-TW' | 'ja-JP';
+type SttChoice = 'zh-TW' | 'ja-JP' | 'en-US';
 
-export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?: 'dark' }) {
+export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?: 'dark'; targetLanguage?: TargetLanguage }) {
   const { ready } = props;
+  const targetLang: TargetLanguage = props.targetLanguage ?? characterTargetLanguage(activeCharacter(loadTutor()));
+  const isEn = targetLang === 'en';
   const [entries, setEntries] = useState<LookupEntry[]>(loadLookups);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [live, setLive] = useState(''); // what the mic hears so far
-  const [lang, setLang] = useState<Lang>('zh-TW'); // the recognition language: 中 (default) or 日
+  const [lang, setLang] = useState<SttChoice>('zh-TW'); // the recognition language: 中 (default) or 日/英
   const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -50,7 +53,7 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
     setBusy(true);
     setErr('');
     const cfg = loadTutor();
-    const r = await askLookup(text, undefined, cfg.helperModel, aiServicesOf(cfg));
+    const r = await askLookup(text, undefined, cfg.helperModel, aiServicesOf(cfg), targetLang);
     setBusy(false);
     if (!r.ok) { setErr(r.message); return; }
     const entry: LookupEntry = { id: newLookupId(), q: text, at: Date.now(), answer: r.answer, raw: r.answer ? undefined : r.raw };
@@ -58,10 +61,12 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
     setQ('');
   };
 
-  /** hear a Japanese line (readings and tags are not spoken) */
+  /** hear a target-language line (readings and tags are not spoken) */
   const say = (ja: string) => {
     if (mic.listening) mic.stop();
-    speakReply(jaSpeakable(ja), 'ja'); // always Japanese: a kanji-only word must not read as Chinese
+    const plain = jaSpeakable(ja);
+    const speakLang = isEn || (/[A-Za-z]/.test(plain) && !/[぀-ヿ\p{Script=Han}]/u.test(plain)) ? 'en' : 'ja';
+    speakReply(plain, speakLang);
   };
 
   const clear = () => setEntries(clearLookups());
@@ -69,7 +74,7 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
   const ja = (text: string) => (
     <span className="lk-ja-line">
       <span className="lk-ja">{rubyNodes(jaDisplay(text))}</span>
-      <button type="button" className="lk-speak" aria-label="播放這句日文" title="播放" onClick={() => say(text)}><IconSpeaker /></button>
+      <button type="button" className="lk-speak" aria-label={isEn ? '播放這句英文' : '播放這句日文'} title="播放" onClick={() => say(text)}><IconSpeaker /></button>
     </span>
   );
 
@@ -133,11 +138,11 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
 
         {/* 查 only once the keyboard is down: with it up, the return key just closes it (the answer then shows on a full sheet) */}
         <form ref={formRef} className="lk-form" onSubmit={(ev) => { ev.preventDefault(); if (keyboard.open) inputRef.current?.blur(); else void submit(); }}>
-          <input ref={inputRef} value={live && mic.listening ? live : q} placeholder="打中文查日文，打日文查意思" aria-label="要查的內容"
+          <input ref={inputRef} value={live && mic.listening ? live : q} placeholder={isEn ? '打中文查英文，打英文查意思' : '打中文查日文，打日文查意思'} aria-label="要查的內容"
             maxLength={LOOKUP_MAX_CHARS} disabled={!ready} onChange={(ev) => setQ(ev.target.value)} />
           <div className="lk-form-row">
             <div className="as-seg lk-lang" role="radiogroup" aria-label="語音辨識語言">
-              {([['zh-TW', '中'], ['ja-JP', '日']] as const).map(([v, l]) => (
+              {([['zh-TW', '中'], [isEn ? 'en-US' : 'ja-JP', isEn ? '英' : '日']] as const).map(([v, l]) => (
                 <button key={v} type="button" role="radio" aria-checked={lang === v} className={lang === v ? 'on' : ''} onClick={() => setLang(v)}>{l}</button>
               ))}
             </div>
@@ -158,7 +163,11 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
             <strong>查詢紀錄</strong>
             {entries.length > 0 && <button type="button" className="as-small danger" onClick={clear}>清除</button>}
           </div>
-          {entries.length === 0 && <p className="tip-empty">還沒有查過。輸入或說出想查的日文說法、詞彙或文法就能查。</p>}
+          {entries.length === 0 && (
+            <p className="tip-empty">
+              {isEn ? '還沒有查過。輸入或說出想查的英文說法、詞彙或文法就能查。' : '還沒有查過。輸入或說出想查的日文說法、詞彙或文法就能查。'}
+            </p>
+          )}
           <ul className="lk-list">
             {entries.map((e, i) => (
               <li key={e.id} className="lk-item">
@@ -173,7 +182,7 @@ export function LookupSheet(props: { onClose: () => void; ready: boolean; theme?
               </li>
             ))}
           </ul>
-          <small className="lk-foot">級數依常見 JLPT 參考清單</small>
+          <small className="lk-foot">{isEn ? '級數依 CEFR 歐洲語言共同參考架構 (A1–C2)' : '級數依常見 JLPT 參考清單'}</small>
         </div>
       </section>
     </div>

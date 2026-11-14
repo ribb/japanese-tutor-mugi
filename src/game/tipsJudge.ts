@@ -2,6 +2,7 @@
 // phone with no network; anything else goes to the dev server's /api/chat/judge (Claude). When Claude cannot be
 // reached the answer is "not the same", never a guess that it is right.
 import { apiFetch } from './apiFetch';
+import type { TargetLanguage } from './claudeProtocol';
 import { stripRuby } from './furigana';
 import { sameJa } from './tipsBook';
 import type { AiServices } from './tutor';
@@ -11,8 +12,14 @@ export type JudgeResult = { ok: boolean; feedback: string; by: 'local' | 'claude
 const UNREACHABLE = '和目標句不一樣（無法連線 Claude 做進一步判斷）';
 
 /** `model`: the 小提醒 model (the settings' 速查與小提醒 model); absent, the server's default */
-export async function judgeSaid(target: string, said: string, model?: string, services?: AiServices): Promise<JudgeResult> {
-  // the readings are for display only: the judge sees the plain Japanese
+export async function judgeSaid(
+  target: string,
+  said: string,
+  model?: string,
+  services?: AiServices,
+  targetLanguage?: TargetLanguage,
+): Promise<JudgeResult> {
+  // the readings are for display only: the judge sees the plain target sentence
   target = stripRuby(target);
   if (sameJa(target, said)) return { ok: true, feedback: '完全正確！', by: 'local' };
   let res: Response;
@@ -20,7 +27,13 @@ export async function judgeSaid(target: string, said: string, model?: string, se
     res = await apiFetch('/api/chat/judge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, said, ...(model ? { model } : {}), ...(services ?? {}) }),
+      body: JSON.stringify({
+        target,
+        said,
+        ...(model ? { model } : {}),
+        ...(targetLanguage === 'en' ? { targetLanguage: 'en' } : {}),
+        ...(services ?? {}),
+      }),
     });
   } catch {
     return { ok: false, feedback: UNREACHABLE, by: 'none' };

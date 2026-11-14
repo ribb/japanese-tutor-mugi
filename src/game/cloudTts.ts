@@ -12,16 +12,23 @@ import { decodeVisemes, visemeIndexAt, type Viseme } from './visemes';
 import { reportTtsFallback, tierShort } from './usageView';
 
 /** VOICEVOX is a local engine (server/tts.ts): it speaks Japanese only, and its voices are the engine's styles */
-export type CloudEngine = 'azure' | 'google' | 'voicevox';
+export type CloudEngine = 'edge' | 'azure' | 'google' | 'voicevox';
 export type CloudVoice = { id: string; label: string; lang: string; character?: string };
-export type CloudStatus = { azure: boolean; google: boolean; voicevox: boolean; voices: Record<CloudEngine, Record<Lang, CloudVoice[]>> };
+export type CloudStatus = {
+  edge?: boolean;
+  azure: boolean;
+  google: boolean;
+  voicevox: boolean;
+  voices: Record<CloudEngine, Record<Lang, CloudVoice[]>>;
+};
 
 /** used until the status is loaded (the server's first voice of each list is the same) */
 export const CLOUD_DEFAULT_VOICES: Record<CloudEngine, Record<Lang, string>> = {
-  azure: { zh: 'zh-TW-HsiaoChenNeural', ja: 'ja-JP-NanamiNeural' },
-  google: { zh: 'cmn-TW-Wavenet-A', ja: 'ja-JP-Neural2-B' },
+  edge: { zh: 'zh-TW-HsiaoChenNeural', ja: 'ja-JP-NanamiNeural', en: 'en-US-JennyNeural' },
+  azure: { zh: 'zh-TW-HsiaoChenNeural', ja: 'ja-JP-NanamiNeural', en: 'en-US-JennyNeural' },
+  google: { zh: 'cmn-TW-Wavenet-A', ja: 'ja-JP-Neural2-B', en: 'en-US-Neural2-F' },
   // 四国めたん・ノーマル (style id 2); when missing, the first style offered
-  voicevox: { zh: '', ja: '2' },
+  voicevox: { zh: '', ja: '2', en: '' },
 };
 
 // ---------- status (GET /api/tts/status) ----------
@@ -35,7 +42,7 @@ export function onCloudStatus(l: () => void): () => void {
   return () => void statusListeners.delete(l);
 }
 /** the voices an engine offers for a language (empty until the status is loaded) */
-export const cloudVoiceList = (engine: CloudEngine, lang: Lang): CloudVoice[] => status?.voices[engine][lang] ?? [];
+export const cloudVoiceList = (engine: CloudEngine, lang: Lang): CloudVoice[] => status?.voices?.[engine]?.[lang] ?? [];
 
 /** the engine's default voice: its preferred one (四国めたん for VOICEVOX) when offered, else the first offered */
 export function cloudDefaultVoice(engine: CloudEngine, lang: Lang): string {

@@ -82,6 +82,7 @@ export function SoundSection({ audio, tts, cloud, volumes = VOLUME_ROWS.map(([k]
       <div className="as-lang-note">{cloud === null ? <small>雲端語音檢查中…</small> : (!cloud.azure || !cloud.google) && <small>Azure／Google 需要在 .env.local 填金鑰</small>}</div>
       <LangVoiceGroup title="中文" lang="zh" tts={tts} cloud={cloud} />
       <LangVoiceGroup title="日文" lang="ja" tts={tts} cloud={cloud} />
+      <LangVoiceGroup title="英文" lang="en" tts={tts} cloud={cloud} />
       <div className="as-lang-note"><small>語速與音調在本機套用，雲端語音一律以原速合成（快取不會因調整而重算）。</small></div>
     </>
   );

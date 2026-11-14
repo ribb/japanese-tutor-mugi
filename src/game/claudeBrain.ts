@@ -8,7 +8,7 @@ import type { ChatLine, Tone } from './chatTypes';
 import type { LookupLevel } from './lookup';
 import {
   CHAT_HISTORY_LINES, CHAT_HISTORY_MAX, CHAT_IDLE_KEEP, CHAT_IDLE_RESET_MS, CHAT_MAX_MESSAGE_CHARS,
-  userTurn, type ChatContext, type ChatModeId, type ChatRoleId,
+  userTurn, type ChatContext, type ChatModeId, type ChatRoleId, type TargetLanguage,
 } from './claudeProtocol';
 import {
   canonicalReplyJson, codePointLength, displayOf, fitReplyJson, isReplyJson, mergeReplyJson, parsePartialJson, readReplyValue, scanJson, toSegments,
@@ -16,12 +16,12 @@ import {
 } from './replyJson';
 import { emitReply, nextReplyId } from './replyBus';
 import { stripTipLabel } from './tipsBook';
-import { activeCharacter, aiServicesOf, effectivePersona, loadTutor, serviceReady, TUTOR_DEFAULT_NAME, type AiServices } from './tutor';
+import { activeCharacter, aiServicesOf, characterTargetLanguage, effectivePersona, loadTutor, serviceReady, TUTOR_DEFAULT_NAME, type AiServices } from './tutor';
 import { chatGptReady } from './openaiStatus';
 
 /** `personas`: the default personality text per role (from the server, shown in the 人設 settings) */
 export type ClaudeStatus = { ok: boolean; model: string; personas?: Record<string, string> };
-export type ClaudeSegment = { text: string; lang: 'zh' | 'ja' };
+export type ClaudeSegment = { text: string; lang: 'zh' | 'ja' | 'en' };
 export type ClaudeContext = ChatContext;
 export type ClaudeReply = {
   /** the visible reply (each segment, a Japanese one with its Chinese gloss in brackets; the tip is not in it) */
@@ -160,15 +160,15 @@ export class ReplyJsonParser {
   }
 }
 
-/** A tip with its <ja> tags: the plain text (tags removed, label stripped) and the Japanese targets inside the tags (trimmed, non-empty). */
+/** A tip with its <ja>/<en> tags: the plain text (tags removed, label stripped) and the target sentences inside the tags (trimmed, non-empty). */
 export function splitTip(tip: string): { text: string; targets: string[] } {
   const t = tip.trim();
-  const targets = [...t.matchAll(/<ja>([\s\S]*?)<\/ja>/g)].map((m) => m[1].trim()).filter(Boolean);
-  return { text: stripTipLabel(t.replace(/<\/?ja>/g, '').trim()).trim(), targets };
+  const targets = [...t.matchAll(/<(?:ja|en)>([\s\S]*?)<\/(?:ja|en)>/g)].map((m) => m[1].trim()).filter(Boolean);
+  return { text: stripTipLabel(t.replace(/<\/?(?:ja|en)>/g, '').trim()).trim(), targets };
 }
 
 /**
- * Her reply from its fields: what is shown, what is voiced (teacher mode: the Japanese only), the tip, and the stored form.
+ * Her reply from its fields: what is shown, what is voiced (teacher mode: the target language only), the tip, and the stored form.
  * tipRewrite: the server asks for the tip to be rewritten (only when there is a tip).
  */
 function viewOf(f: ReplyFields, mode: ChatModeId, tipRewrite: boolean): ClaudeReply {
@@ -176,7 +176,7 @@ function viewOf(f: ReplyFields, mode: ChatModeId, tipRewrite: boolean): ClaudeRe
   const visible = displayOf(segs).trim();
   const { text: tip, targets } = splitTip(f.tip);
   const spoken = mode === 'teacher'
-    ? segs.filter((s) => s.lang === 'ja').map((s) => s.text.trim()).filter(Boolean).join('\n')
+    ? segs.filter((s) => s.lang === 'ja' || s.lang === 'en').map((s) => s.text.trim()).filter(Boolean).join('\n')
     : visible;
   const rewrite = !!tip && tipRewrite;
   return {
@@ -188,22 +188,22 @@ function viewOf(f: ReplyFields, mode: ChatModeId, tipRewrite: boolean): ClaudeRe
     tipRaw: rewrite ? f.tip.trim() : undefined,
     tipRewrite: rewrite ? true : undefined,
     tone: f.tone,
-    // a Japanese segment with its gloss: the Japanese, then the gloss in brackets as a Chinese part (the old shape)
-    segments: segs.flatMap((s): ClaudeSegment[] => (s.lang === 'ja' && s.gloss
-      ? [{ lang: 'ja', text: s.text }, { lang: 'zh', text: `（${s.gloss}）` }]
+    // a target-language segment with its gloss: the target text, then the gloss in brackets as a Chinese part (the old shape)
+    segments: segs.flatMap((s): ClaudeSegment[] => ((s.lang === 'ja' || s.lang === 'en') && s.gloss
+      ? [{ lang: s.lang, text: s.text }, { lang: 'zh', text: `（${s.gloss}）` }]
       : [{ lang: s.lang, text: s.text }])),
     sent: canonicalReplyJson({ segments: segs, tip: '', tone: f.tone }),
   };
 }
 
 /** The chat line for something she is about to hear. The situation prefix is fixed here, once, and stored on the line (`sent`). */
-export function userChatLine(text: string, ctx: ClaudeContext, mode: ChatModeId, t: number): ChatLine {
-  return { from: 'me', text, t, sent: userTurn(text, ctx, mode) };
+export function userChatLine(text: string, ctx: ClaudeContext, mode: ChatModeId, t: number, targetLanguage: TargetLanguage = 'ja'): ChatLine {
+  return { from: 'me', text, t, sent: userTurn(text, ctx, mode, targetLanguage) };
 }
 
-/** The stored and sent form of a 開話題 line: its Japanese as one segment with the Chinese as the gloss, and no tip. */
-export function topicSent(ja: string, zh: string): string {
-  return canonicalReplyJson({ segments: [{ lang: 'ja', text: ja, gloss: zh }], tip: '', tone: 'happy' });
+/** The stored and sent form of a 開話題 line: its Japanese or English as one segment with the Chinese as the gloss, and no tip. */
+export function topicSent(ja: string, zh: string, lang: 'ja' | 'en' = 'ja'): string {
+  return canonicalReplyJson({ segments: [{ lang, text: ja, gloss: zh }], tip: '', tone: 'happy' });
 }
 
 /**
@@ -382,6 +382,7 @@ async function streamClaude(args: AskClaudeArgs, id: number, signal?: AbortSigna
   // the character on screen (人物): her name and her personality (the default of her id when she has none of her own)
   const me = activeCharacter(cfg);
   const persona = effectivePersona(me);
+  const targetLang = characterTargetLanguage(me);
   let res: Response;
   try {
     res = await apiFetch('/api/chat', {
@@ -391,6 +392,7 @@ async function streamClaude(args: AskClaudeArgs, id: number, signal?: AbortSigna
         messages: toApiMessages(args.history), role: args.role, mode: args.mode, context: args.context,
         ...(cfg.chatModel ? { model: cfg.chatModel } : {}),
         ...(persona ? { persona } : {}),
+        ...(targetLang === 'en' ? { targetLanguage: 'en' } : {}),
         // her name (設定 › 人物): the model is told it, so she answers to it
         name: me.name,
         // the AI services in the player's order (Claude, ChatGPT or both) and the ChatGPT model
@@ -406,8 +408,8 @@ async function streamClaude(args: AskClaudeArgs, id: number, signal?: AbortSigna
   const parser = new ReplyJsonParser();
   const emitSegments = (segs: ClaudeSegment[]) => {
     for (const s of segs) {
-      // teacher mode: only her Japanese is voiced; the Chinese in brackets is shown in the bubble, never spoken
-      if (args.mode === 'teacher' && s.lang !== 'ja') continue;
+      // teacher mode: only her target language (ja or en) is voiced; the Chinese in brackets is shown in the bubble, never spoken
+      if (args.mode === 'teacher' && s.lang !== 'ja' && s.lang !== 'en') continue;
       emitReply({ type: 'delta', id, text: s.text, lang: s.lang });
     }
   };
@@ -466,7 +468,7 @@ export const TIP_REVISE_TIMEOUT_MS = 10_000;
  * stays. Only ever a console.warn: the player is never shown an error for it.
  */
 export async function reviseTip(
-  tipRaw: string, timeoutMs = TIP_REVISE_TIMEOUT_MS, model?: string, services?: AiServices,
+  tipRaw: string, timeoutMs = TIP_REVISE_TIMEOUT_MS, model?: string, services?: AiServices, targetLanguage?: TargetLanguage,
 ): Promise<{ text: string; targets: string[] } | null> {
   const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -481,7 +483,12 @@ export async function reviseTip(
     const r = await apiFetch('/api/chat/fix-tip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tip: tipRaw, ...(model ? { model } : {}), ...(services ?? {}) }),
+      body: JSON.stringify({
+        tip: tipRaw,
+        ...(model ? { model } : {}),
+        ...(targetLanguage === 'en' ? { targetLanguage: 'en' } : {}),
+        ...(services ?? {}),
+      }),
       signal: ctrl.signal,
     });
     const j = (await r.json().catch(() => null)) as { ok?: unknown; tip?: unknown; message?: unknown } | null;

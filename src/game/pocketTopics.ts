@@ -109,18 +109,124 @@ export const POCKET_TOPICS: readonly PocketTopic[] = [
 /** strips the [かな] readings: what is spoken (and the plain text for anything without ruby support) */
 export const plainJa = (s: string): string => s.replace(/\[[^\]]*\]/g, '');
 
+export const EN_POCKET_TOPICS: readonly PocketTopic[] = [
+  { zh: '你今天過得怎麼樣？有沒有發生什麼好玩的事？', ja: 'How was your day today? Did anything fun happen?', jaZh: '你今天過得如何？有發生什麼有趣的事嗎？' },
+  { zh: '你早餐通常都吃什麼？', ja: 'What do you usually have for breakfast?', jaZh: '你早餐通常吃什麼？' },
+  { zh: '如果明天放假一整天，你想做什麼？', ja: 'If you had the whole day off tomorrow, what would you do?', jaZh: '如果明天有一整天假，你會做什麼？' },
+  { zh: '你最喜歡哪個季節？為什麼？', ja: 'What is your favorite season, and why?', jaZh: '你最喜歡哪個季節？為什麼呢？' },
+  { zh: '你小時候的夢想是什麼？', ja: 'What was your dream job when you were a kid?', jaZh: '你小時候夢想的工作是什麼？' },
+  { zh: '最近有沒有在追什麼影集或動畫？', ja: 'Have you been watching any good shows or anime lately?', jaZh: '最近有看什麼好看的劇或動畫嗎？' },
+  { zh: '你是貓派還是狗派？', ja: 'Are you more of a cat person or a dog person?', jaZh: '你比較偏向貓派還是狗派？' },
+  { zh: '如果可以去世界任何地方旅行，你想去哪裡？', ja: 'If you could travel anywhere in the world, where would you go?', jaZh: '如果能去世界任何地方旅行，你想去哪？' },
+  { zh: '你喜歡吃甜食還是鹹食？', ja: 'Do you prefer sweet snacks or savory ones?', jaZh: '你喜歡甜點還是鹹點心？' },
+  { zh: '你最近睡眠充足嗎？', ja: 'Have you been getting enough sleep lately?', jaZh: '你最近有睡飽嗎？' },
+  { zh: '你平時喜歡聽什麼類型的音樂？', ja: 'What kind of music do you like listening to?', jaZh: '你喜歡聽什麼類型的音樂？' },
+  { zh: '你是早起型的人還是夜貓子？', ja: 'Are you an early bird or a night owl?', jaZh: '你是早起鳥還是夜貓子？' },
+  { zh: '今天的天氣怎麼樣？', ja: 'How is the weather over there today?', jaZh: '你那邊今天天氣怎麼樣？' },
+  { zh: '最近有沒有什麼想學的新技能？', ja: 'Is there any new skill you want to pick up recently?', jaZh: '最近有什麼想學的新技能嗎？' },
+  { zh: '你吃過最難忘的一餐是什麼？', ja: 'What is the best meal you have ever had?', jaZh: '你吃過最棒的一餐是什麼？' },
+  { zh: '你喜歡下雨天嗎？', ja: 'Do you like rainy days, or do they make you sleepy?', jaZh: '你喜歡下雨天嗎，還是那會讓你想睡？' },
+  { zh: '你的旅遊清單上有哪個一直想去的地方？', ja: 'What place is at the top of your travel bucket list?', jaZh: '你的旅遊願望清單第一名是哪裡？' },
+  { zh: '你覺得我今天的打扮怎麼樣？', ja: 'What do you think of my outfit today?', jaZh: '你覺得我今天的穿搭如何？' },
+  { zh: '你週末通常都怎麼度過？', ja: 'How do you usually spend your weekends?', jaZh: '你週末通常都怎麼過？' },
+  { zh: '你最喜歡什麼顏色？', ja: 'What is your favorite color to wear?', jaZh: '你最喜歡穿什麼顏色？' },
+  { zh: '你平常會下廚嗎？拿手菜是什麼？', ja: 'Do you like cooking? What is your signature dish?', jaZh: '你喜歡做菜嗎？你的拿手菜是什麼？' },
+  { zh: '如果可以擁有一種超能力，你想要什麼？', ja: 'If you could have one superpower, what would you choose?', jaZh: '如果能有一種超能力，你會選什麼？' },
+  { zh: '最近有什麼讓你開心的小確幸嗎？', ja: 'What is one small thing that made you smile recently?', jaZh: '最近有什麼讓你微笑的小事嗎？' },
+  { zh: '你早上習慣喝咖啡還是喝茶？', ja: 'Do you prefer coffee or tea in the morning?', jaZh: '你早上喜歡喝咖啡還是茶？' },
+  { zh: '忙了一整天之後，你都怎麼放鬆？', ja: 'How do you usually unwind after a long day?', jaZh: '忙了一整天後你通常怎麼放鬆？' },
+  { zh: '你平常有在玩什麼遊戲嗎？', ja: 'Have you been playing any fun games lately?', jaZh: '最近有玩什麼好玩的遊戲嗎？' },
+  { zh: '今天有記得多喝水嗎？', ja: 'Have you had enough water to drink today?', jaZh: '你今天有喝夠水嗎？' },
+  { zh: '度假時你喜歡去海邊還是山上？', ja: 'Do you prefer going to the beach or the mountains for a getaway?', jaZh: '度假時你喜歡去海邊還是山上？' },
+  { zh: '最近有什麼事讓你覺得壓力大嗎？', ja: 'Is there anything on your mind lately? You can tell me.', jaZh: '最近心裡有什麼煩惱嗎？可以跟我說喔。' },
+  { zh: '你覺得自己最大的優點是什麼？', ja: 'What do you think is your greatest strength?', jaZh: '你覺得自己最大的優點是什麼？' },
+  { zh: '你喜歡看電影嗎？最近看了哪一部？', ja: 'What is the last movie you watched, and did you like it?', jaZh: '你最近看的一部電影是什麼？好看嗎？' },
+  { zh: '你有收集什麼東西的習慣嗎？', ja: 'Do you collect anything special as a hobby?', jaZh: '你有收集什麼特別東西的嗜好嗎？' },
+  { zh: '如果可以養任何寵物，你想養什麼？', ja: 'If you could keep any animal as a pet, what would it be?', jaZh: '如果能養任何動物當寵物，你想養什麼？' },
+  { zh: '你平常都做什麼運動來保持活力？', ja: 'What do you like to do to stay active?', jaZh: '你都做什麼運動來保持活力？' },
+  { zh: '最近一次讓你哈哈大笑是什麼時候？', ja: 'What made you laugh out loud recently?', jaZh: '最近是什麼事讓你哈哈大笑？' },
+  { zh: '你最喜歡什麼口味的冰淇淋？', ja: 'What is your go-to ice cream flavor?', jaZh: '你最常點什麼口味的冰淇淋？' },
+  { zh: '你心目中理想的早晨是什麼樣子？', ja: 'What does your ideal morning routine look like?', jaZh: '你心目中理想的早晨日常是什麼樣子？' },
+  { zh: '最近有沒有哪位好久不見、很想念的朋友？', ja: 'Is there an old friend you would love to catch up with?', jaZh: '有沒有哪位老朋友是你很想敘敘舊的？' },
+  { zh: '出門旅行時你喜歡拍照嗎？', ja: 'Do you like taking photos when you go out?', jaZh: '你出門時喜歡拍照嗎？' },
+  { zh: '學生時期你最喜歡哪一門科目？', ja: 'What was your favorite subject back in school?', jaZh: '你以前在學校最喜歡哪一科？' },
+  { zh: '如果中了樂透頭獎，你第一件事想做什麼？', ja: 'If you won the lottery, what is the first thing you would buy?', jaZh: '如果中了樂透，你第一件想買的東西是什麼？' },
+  { zh: '你喜歡熱鬧的城市還是安靜的小鎮？', ja: 'Do you prefer lively cities or quiet little towns?', jaZh: '你喜歡熱鬧的城市還是安靜的小鎮？' },
+  { zh: '你最近有讀到什麼好書或好文章嗎？', ja: 'Have you read any good books or articles lately?', jaZh: '最近有讀到什麼好書或好文章嗎？' },
+  { zh: '你敢吃辣嗎？能吃多辣？', ja: 'How well can you handle spicy food?', jaZh: '你有多能吃辣呢？' },
+  { zh: '在咖啡廳點餐時，你最常點什麼飲料？', ja: 'What is your usual order at a coffee shop?', jaZh: '在咖啡店你通常都點什麼？' },
+  { zh: '今天工作或上課還順利嗎？', ja: 'How did work or school go for you today?', jaZh: '今天工作或上課過得還順利嗎？' },
+  { zh: '夏天到了你最期待做什麼事？', ja: 'What is your favorite thing to do in the summer?', jaZh: '夏天你最喜歡做什麼事？' },
+  { zh: '天氣冷的時候你最想吃什麼？', ja: 'What is your favorite comfort food on a cold day?', jaZh: '冷天裡你最愛吃的療癒美食是什麼？' },
+  { zh: '你有沒有什麼小小的恐懼或害怕的東西？', ja: 'Is there anything you are secretly afraid of?', jaZh: '你有什麼偷偷害怕的東西嗎？' },
+  { zh: '一年之中你最喜歡慶祝哪個節日？', ja: 'Which holiday do you look forward to the most every year?', jaZh: '每年你最期待哪一個節日？' },
+  { zh: '你喜歡去實體店逛街還是網路購物？', ja: 'Do you prefer shopping in stores or buying things online?', jaZh: '你喜歡逛實體店還是網購？' },
+  { zh: '你手機裡最常打開的 App 是哪一個？', ja: 'Which app on your phone do you use the most every day?', jaZh: '你每天最常用手機裡的哪個 App？' },
+  { zh: '如果有時光機，你想回到過去還是去未來看看？', ja: 'If you had a time machine, would you visit the past or the future?', jaZh: '如果有時光機，你想去過去還是未來？' },
+  { zh: '你想像過五年後的自己會在哪裡嗎？', ja: 'Where do you see yourself five years from now?', jaZh: '你覺得五年後的自己會在哪裡？' },
+  { zh: '這禮拜有沒有吃到什麼很推薦的餐廳？', ja: 'Did you try any great restaurants or snacks this week?', jaZh: '這週有吃到很棒的餐廳或點心嗎？' },
+  { zh: '居家辦公和去辦公室上班，你比較喜歡哪種？', ja: 'Do you prefer working from home or working in an office?', jaZh: '你比較喜歡在家工作還是進辦公室？' },
+  { zh: '你有沒有什麼每天一定要做的小習慣？', ja: 'Do you have any daily habits you never skip?', jaZh: '你有什麼每天一定會做的小習慣嗎？' },
+  { zh: '去唱 KTV 的時候，你的必點招牌歌是什麼？', ja: 'What is your go-to karaoke song?', jaZh: '你去唱 KTV 的必點歌是什麼？' },
+  { zh: '你覺得身邊的朋友會用哪三個詞形容你？', ja: 'How would your best friends describe your personality?', jaZh: '你的好朋友會怎麼形容你的個性？' },
+  { zh: '你有在沒有光害的地方看過滿天星空嗎？', ja: 'Have you ever gone stargazing far away from the city?', jaZh: '你有去遠離城市的地方看過星星嗎？' },
+  { zh: '一天當中你精神最好的時段是什麼時候？', ja: 'What time of day do you feel the most productive?', jaZh: '一天之中你什麼時段最有精神和效率？' },
+  { zh: '散步的時候你喜歡聽音樂、聽 Podcast 還是安靜走？', ja: 'What do you like listening to when you go for a walk?', jaZh: '去散步時你喜歡聽什麼？' },
+  { zh: '今年你有沒有給自己訂什麼小目標？', ja: 'Is there a personal goal you are working on this year?', jaZh: '今年你有沒有正在努力的個人目標？' },
+  { zh: '台灣這麼多水果裡面，你最愛吃哪一種？', ja: 'What is your favorite fruit when it is in season?', jaZh: '當季水果裡你最喜歡哪一種？' },
+  { zh: '早餐你喜歡吃西式三明治還是中式蛋餅？', ja: 'Do you prefer a western breakfast or a traditional local one?', jaZh: '早餐你喜歡西式還是傳統在地早餐？' },
+  { zh: '今天有沒有哪個瞬間讓你覺得很療癒？', ja: 'Was there a peaceful moment that made you feel happy today?', jaZh: '今天有沒有哪個平靜又開心的瞬間？' },
+  { zh: '今天晚餐你打算吃什麼呢？', ja: 'What are you planning to have for dinner tonight?', jaZh: '你今晚晚餐打算吃什麼？' },
+  { zh: '你的書桌或房間通常是整齊派還是隨性派？', ja: 'Is your desk usually neat and tidy, or a bit messy?', jaZh: '你的書桌通常是整整齊齊，還是有點亂？' },
+  { zh: '出國旅遊時你最怕遇到什麼狀況？', ja: 'What is the most stressful part of traveling for you?', jaZh: '旅行時你覺得最有壓力的部分是什麼？' },
+  { zh: '你喜歡看日出還是看夕陽？', ja: 'Do you prefer watching the sunrise or the sunset?', jaZh: '你喜歡看日出還是夕陽？' },
+  { zh: '學英文的時候，你覺得最有趣或最難的是哪一部分？', ja: 'What part of learning English do you find the most interesting?', jaZh: '學英文時你覺得哪個部分最有趣？' },
+  { zh: '吃火鍋的時候，哪一樣食材是你必加的？', ja: 'What is your must-have ingredient when you eat hot pot?', jaZh: '吃火鍋時你必加的食材是什麼？' },
+  { zh: '跟外國人用英文聊天時，你最想聊什麼話題？', ja: 'What topic do you want to feel confident talking about in English?', jaZh: '你最希望自己能自信地用英文聊什麼話題？' },
+  { zh: '如果在國外迷路了，你會先看地圖還是問路人？', ja: 'When you get lost in a new city, do you check a map or ask someone?', jaZh: '在陌生城市迷路時，你會看地圖還是問路？' },
+  { zh: '你有做過什麼印象很深刻的夢嗎？', ja: 'Have you ever had a dream that you still remember clearly?', jaZh: '你有做過至今還記得很清楚的夢嗎？' },
+  { zh: '看電影或追劇時你最愛配什麼零食？', ja: 'What is your favorite snack to eat while watching a movie?', jaZh: '看電影時你最愛配什麼零食？' },
+  { zh: '所有的家事裡面，你最不喜歡做哪一件？', ja: 'Which household chore do you dislike doing the most?', jaZh: '家事裡面你最討厭做哪一件？' },
+  { zh: '放假時你喜歡獨處充電，還是約朋友出去聚餐？', ja: 'Do you recharge better by spending time alone or hanging out with friends?', jaZh: '你喜歡獨處充電，還是跟朋友出去玩？' },
+  { zh: '除了英文和日文，你還對哪個國家的語言或文化有興趣？', ja: 'Besides English, is there another culture or language you are curious about?', jaZh: '除了英文之外，還有哪個文化或語言讓你好奇？' },
+  { zh: '最近有沒有哪首歌一直卡在你腦海裡？', ja: 'Is there a song that has been stuck in your head lately?', jaZh: '最近有哪首歌一直在你腦海裡循環嗎？' },
+  { zh: '去逛台灣夜市的話，你一定會推薦外國朋友吃什麼？', ja: 'If a foreign friend visited Taiwan, what night market food would you recommend?', jaZh: '如果外國朋友來台灣，你會推薦什麼夜市美食？' },
+  { zh: '如果給今天的心情打分數，一到十分你會給幾分？', ja: 'On a scale of one to ten, how are you feeling today?', jaZh: '一到十分的話，你今天心情幾分？' },
+  { zh: '心情低落的時候，什麼事情最能讓你打起精神？', ja: 'What always cheers you up when you are having a rough day?', jaZh: '當你今天不太順遂時，什麼事總能讓你開心起來？' },
+  { zh: '在飯店住宿時，你最在意房間的什麼細節？', ja: 'What is the first thing you check when you walk into a hotel room?', jaZh: '走進飯店房間時，你第一個會看什麼？' },
+  { zh: '你最喜歡去動物園或水族館看什麼動物？', ja: 'Do you prefer visiting the zoo or the aquarium?', jaZh: '你比較喜歡去動物園還是水族館？' },
+  { zh: '如果週末去一日遊，你想去哪裡走走？', ja: 'Where is a nice place for a weekend day trip near you?', jaZh: '你附近有什麼適合週末一日遊的好地方？' },
+  { zh: '你覺得跟人第一次見面時，怎麼開話題最自然？', ja: 'What is your favorite icebreaker question when meeting someone new?', jaZh: '認識新朋友時，你最喜歡的破冰問題是什麼？' },
+  { zh: '今天有跟同事或朋友聊到什麼有趣的事嗎？', ja: 'Did you have any interesting conversations with friends or coworkers today?', jaZh: '今天有跟朋友或同事聊到什麼有趣的事嗎？' },
+  { zh: '平日你比較常自己帶便當還是外食？', ja: 'Do you usually cook at home or eat out on weekdays?', jaZh: '平日你通常在家煮還是外食？' },
+  { zh: '有沒有哪部電影或哪首歌，每次看每次都會感動？', ja: 'Is there a movie or song that always makes you emotional?', jaZh: '有沒有哪部電影或歌曲總是會觸動你？' },
+  { zh: '最近有沒有買了什麼覺得「買對了！」的好物？', ja: 'What is the most useful thing you have bought recently?', jaZh: '你最近買過最實用的東西是什麼？' },
+  { zh: '去國外餐廳吃飯時，你喜歡嘗試沒吃過的當地菜嗎？', ja: 'Are you an adventurous eater when you travel abroad?', jaZh: '出國旅行時，你喜歡大膽嘗試新食物嗎？' },
+  { zh: '你小時候放學後最喜歡做什麼？', ja: 'What did you love doing right after school when you were young?', jaZh: '你小時候放學後最愛做什麼？' },
+  { zh: '你喜歡什麼樣的香味，像是咖啡香、木質調還是花香？', ja: 'What is a scent that immediately makes you feel relaxed?', jaZh: '什麼香味能馬上讓你覺得放鬆？' },
+  { zh: '明天你有什麼特別的計畫或安排嗎？', ja: 'Do you have any plans lined up for tomorrow?', jaZh: '你明天有什麼計畫或安排嗎？' },
+  { zh: '最近有沒有完成什麼值得犒賞自己的事？', ja: 'Have you accomplished anything recently that deserves a little celebration?', jaZh: '最近有完成什麼值得小小慶祝的事嗎？' },
+  { zh: '買衣服的時候，你比較看重舒適度還是穿起來好看？', ja: 'When buying clothes, do you care more about comfort or style?', jaZh: '買衣服時你比較在意舒適還是風格？' },
+  { zh: '睡覺前一個小時，你通常都在做什麼？', ja: 'What do you usually do in the last hour before going to bed?', jaZh: '睡前一小時你通常在做什麼？' },
+  { zh: '對你來說，理想的生活步調是什麼樣子？', ja: 'What does a balanced and happy life look like to you?', jaZh: '對你來說，平衡又快樂的生活是什麼樣子？' },
+  { zh: '今天我們一起用英文聊哪個生活情境好呢？', ja: 'Is there a real-life situation you want to practice in English with me today?', jaZh: '今天有哪個真實生活情境你想跟我用英文練習嗎？' },
+];
+
 const BAG_KEY = 'mugi.topics.v1';
+const EN_BAG_KEY = 'mugi.topics.en.v1';
 
 /**
  * Random order without repeats: every topic comes up once before any repeats (a shuffled bag, refilled when empty, and
  * never starting the new round with the topic just used). The remaining bag is saved, so it survives a reload.
  */
-export function nextPocketTopic(rng: () => number = Math.random): PocketTopic {
-  const n = POCKET_TOPICS.length;
+export function nextPocketTopic(rng: () => number = Math.random, targetLanguage: 'ja' | 'en' = 'ja'): PocketTopic {
+  const list = targetLanguage === 'en' ? EN_POCKET_TOPICS : POCKET_TOPICS;
+  const key = targetLanguage === 'en' ? EN_BAG_KEY : BAG_KEY;
+  const n = list.length;
   let bag: number[] = [];
   let last = -1;
   try {
-    const s = JSON.parse(localStorage.getItem(BAG_KEY) ?? 'null') as { bag?: unknown; last?: unknown } | null;
+    const s = JSON.parse(localStorage.getItem(key) ?? 'null') as { bag?: unknown; last?: unknown } | null;
     if (s && Array.isArray(s.bag)) bag = s.bag.filter((i): i is number => Number.isInteger(i) && i >= 0 && i < n);
     if (s && typeof s.last === 'number') last = s.last;
   } catch { /* no storage */ }
@@ -134,6 +240,6 @@ export function nextPocketTopic(rng: () => number = Math.random): PocketTopic {
     if (n > 1 && bag[n - 1] === last) [bag[0], bag[n - 1]] = [bag[n - 1], bag[0]];
   }
   const idx = bag.pop()!;
-  try { localStorage.setItem(BAG_KEY, JSON.stringify({ bag, last: idx })); } catch { /* no storage */ }
-  return POCKET_TOPICS[idx];
+  try { localStorage.setItem(key, JSON.stringify({ bag, last: idx })); } catch { /* no storage */ }
+  return list[idx];
 }

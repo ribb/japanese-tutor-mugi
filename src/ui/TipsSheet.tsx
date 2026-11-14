@@ -1,10 +1,11 @@
 // 小提醒筆記本: the tips she gave in 日語老師 mode, each with the Japanese it named. The player can hear it again (示範),
 // say it (練習: the mic, judged by game/tipsJudge) or type it, until it is right; right ones move to 已學會.
 import { useEffect, useRef, useState } from 'react';
+import type { TargetLanguage } from '../game/claudeProtocol';
 import { loadTips, onTips, removeTip, updateTip, type TipEntry } from '../game/tipsBook';
 import { levelBadge } from '../game/lookup';
 import { judgeSaid } from '../game/tipsJudge';
-import { aiServicesOf, loadTutor } from '../game/tutor';
+import { activeCharacter, aiServicesOf, characterTargetLanguage, loadTutor } from '../game/tutor';
 import { speakReply, stopSpeaking } from '../game/tts';
 import { stripRuby } from '../game/furigana';
 import { rubyNodes } from './Furigana';
@@ -18,14 +19,26 @@ type Verdict = { ok: boolean; feedback: string };
 /** how long a correct answer stays on its card before it moves to 已學會 */
 const MASTER_DELAY_MS = 1200;
 
-export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
+function detectCardLang(e: TipEntry, target: string | undefined, fallback: TargetLanguage): TargetLanguage {
+  if (e.level && /^(A1|A2|B1|B2|C1|C2)$/.test(e.level)) return 'en';
+  if (e.level && /^N[1-5]$/.test(e.level)) return 'ja';
+  if (target) {
+    const plain = stripRuby(target);
+    if (/[぀-ヿ]/.test(plain)) return 'ja';
+    if (/[A-Za-z]/.test(plain) && !/\p{Script=Han}/u.test(plain)) return 'en';
+  }
+  return fallback;
+}
+
+export function TipsSheet(props: { onClose: () => void; theme?: 'dark'; targetLanguage?: TargetLanguage }) {
+  const defaultLang: TargetLanguage = props.targetLanguage ?? characterTargetLanguage(activeCharacter(loadTutor()));
   const [tips, setTips] = useState<TipEntry[]>(loadTips);
   const [tab, setTab] = useState<Tab>('practice');
   const [sel, setSel] = useState<Record<string, number>>({}); // which target of a card is chosen (default first)
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [typed, setTyped] = useState<Record<string, string>>({});
-  const [practice, setPractice] = useState<{ id: string; target: string } | null>(null); // the card the mic is for
+  const [practice, setPractice] = useState<{ id: string; target: string; lang: TargetLanguage } | null>(null); // the card the mic is for
   const [live, setLive] = useState(''); // what the mic hears so far
   const [note, setNote] = useState('');
   const practiceRef = useRef(practice);
@@ -45,10 +58,10 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
   };
 
   /** judge what the player said for one card and record the attempt */
-  const check = async (id: string, target: string, said: string) => {
+  const check = async (id: string, target: string, said: string, cardLang: TargetLanguage = defaultLang) => {
     setBusy((b) => ({ ...b, [id]: true }));
     const cfg = loadTutor();
-    const r = await judgeSaid(target, said, cfg.helperModel, aiServicesOf(cfg));
+    const r = await judgeSaid(target, said, cfg.helperModel, aiServicesOf(cfg), cardLang);
     setBusy((b) => ({ ...b, [id]: false }));
     setVerdicts((v) => ({ ...v, [id]: { ok: r.ok, feedback: r.feedback } }));
     const cur = loadTips().find((x) => x.id === id);
@@ -57,6 +70,7 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
     if (r.ok) later(() => updateTip(id, { mastered: true }), MASTER_DELAY_MS);
   };
 
+  const micLang = (practice?.lang ?? defaultLang) === 'en' ? 'en-US' : 'ja-JP';
   const mic = useSpeechInput({
     onStart: () => setNote(''),
     onPartial: (t) => setLive(t),
@@ -64,24 +78,24 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
       setLive('');
       const p = practiceRef.current;
       setPractice(null);
-      if (p) void check(p.id, p.target, t);
+      if (p) void check(p.id, p.target, t, p.lang);
     },
     onEnd: () => { setLive(''); setPractice(null); },
     onError: (code) => { setNote(speechNoteText(code)); setPractice(null); },
-  }, { lang: 'ja-JP' });
+  }, { lang: micLang });
 
-  const startPractice = (id: string, target: string) => {
+  const startPractice = (id: string, target: string, cardLang: TargetLanguage) => {
     if (mic.listening) { mic.stop(); return; } // tapping again while listening stops it
     stopSpeaking(); // her voice must not talk over the player
     setVerdicts((v) => { const n = { ...v }; delete n[id]; return n; });
     setNote('');
-    setPractice({ id, target });
+    setPractice({ id, target, lang: cardLang });
     mic.start();
   };
 
-  const demo = (target: string) => {
+  const demo = (target: string, cardLang: TargetLanguage) => {
     if (mic.listening) mic.stop();
-    speakReply(stripRuby(target), 'ja'); // the readings are for display only; always Japanese (kanji-only words too)
+    speakReply(stripRuby(target), cardLang); // the readings are for display only
   };
 
   const learned = tips.filter((t) => t.mastered);
@@ -91,6 +105,7 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
   const card = (e: TipEntry) => {
     const idx = Math.min(sel[e.id] ?? 0, Math.max(0, e.targets.length - 1));
     const target = e.targets[idx];
+    const cardLang = detectCardLang(e, target, defaultLang);
     const v = verdicts[e.id];
     const listeningHere = practice?.id === e.id;
     return (
@@ -108,9 +123,9 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
         {target !== undefined && (
           <>
             <div className="tip-actions">
-              <button type="button" className="as-small" onClick={() => demo(target)}>示範</button>
+              <button type="button" className="as-small" onClick={() => demo(target, cardLang)}>示範</button>
               <button type="button" className={listeningHere ? 'as-small on' : 'as-small'} aria-pressed={listeningHere}
-                aria-disabled={!mic.supported || undefined} disabled={busy[e.id]} onClick={() => startPractice(e.id, target)}>
+                aria-disabled={!mic.supported || undefined} disabled={busy[e.id]} onClick={() => startPractice(e.id, target, cardLang)}>
                 {listeningHere ? '聆聽中…（點一下停止）' : '練習'}
               </button>
             </div>
@@ -120,7 +135,7 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
               const said = (typed[e.id] ?? '').trim();
               if (!said) return;
               setTyped((t) => ({ ...t, [e.id]: '' }));
-              void check(e.id, target, said);
+              void check(e.id, target, said, cardLang);
             }}>
               <input value={typed[e.id] ?? ''} placeholder="或用打字輸入" aria-label="打字練習"
                 onChange={(ev) => setTyped((t) => ({ ...t, [e.id]: ev.target.value }))} />
@@ -133,7 +148,7 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
           <div className={v.ok ? 'tip-verdict ok' : 'tip-verdict ng'} role="status">
             <b>{v.ok ? '✓ 正確！' : '✗ 還不對'}</b> {v.feedback}
             {!v.ok && target !== undefined && (
-              <button type="button" className="as-small" onClick={() => startPractice(e.id, target)}>再試一次</button>
+              <button type="button" className="as-small" onClick={() => startPractice(e.id, target, cardLang)}>再試一次</button>
             )}
           </div>
         )}
@@ -165,7 +180,11 @@ export function TipsSheet(props: { onClose: () => void; theme?: 'dark' }) {
         {note && <div className="as-mic-note" role="status">{note}</div>}
         <div ref={bodyRef} className="as-settings-body">
           {list.length === 0 && (
-            <p className="tip-empty">{tab === 'practice' ? '還沒有要練習的小提醒。之後她在日語老師模式裡給的提醒會收在這裡。' : '還沒有學會的句子。'}</p>
+            <p className="tip-empty">
+              {tab === 'practice'
+                ? `還沒有要練習的小提醒。之後她在${defaultLang === 'en' ? '英語' : '日語'}老師模式裡給的提醒會收在這裡。`
+                : '還沒有學會的句子。'}
+            </p>
           )}
           <ul className="tip-list">{list.map(card)}</ul>
         </div>

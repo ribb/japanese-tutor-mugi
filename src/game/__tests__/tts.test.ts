@@ -305,19 +305,21 @@ describe('migrateTtsSettings (per-language settings and the older one-engine sav
     expect(m.ja).toEqual({ engine: 'browser', rate: 1.3, pitch: 0.8, voices: {} });
   });
 
-  it('nothing saved gives the defaults for both languages', () => {
+  it('nothing saved gives the defaults for all languages (en defaults to edge)', () => {
     expect(migrateTtsSettings(null)).toEqual({
       on: true,
       zh: { engine: 'browser', rate: 1.05, pitch: 1, voices: {} },
       ja: { engine: 'browser', rate: 1.05, pitch: 1, voices: {} },
+      en: { engine: 'edge', rate: 1.05, pitch: 1, voices: {} },
     });
   });
 
-  it('a per-language save is kept as it is', () => {
+  it('a per-language save is kept as it is (missing en gets its default)', () => {
     const v2 = {
       on: true,
       zh: { engine: 'google', rate: 1.1, pitch: 1.1, voices: { google: 'cmn-TW-Wavenet-A' } },
       ja: { engine: 'browser', rate: 1, pitch: 1, voices: { browser: 'Kyoko' } },
+      en: { engine: 'edge', rate: 1.05, pitch: 1, voices: {} },
     };
     expect(migrateTtsSettings(v2)).toEqual(v2);
   });

@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { createVoicevoxProcess, engineExeName, voicevoxExe, voicevoxRoute, VoicevoxError, VOICEVOX_ARGS, type VoicevoxProcessDeps } from '../../../server/voicevoxProcess.ts';
 import { sameOriginRequest } from '../../../server/tts.ts';
 
-const DIR = 'C:\\voicevox_engine';
-const EXE = 'C:\\voicevox_engine\\run.exe';
+const DIR = process.platform === 'win32' ? 'C:\\voicevox_engine' : '/opt/voicevox_engine';
+const EXE = voicevoxExe(DIR);
 
 /** a fake machine: the engine on the port (or none), its process path and memory, and the calls made to it */
 function machine(opts: { up?: boolean; pid?: number | null; path?: string | null; exists?: boolean; spawnFails?: boolean; upAfterSpawn?: number } = {}) {

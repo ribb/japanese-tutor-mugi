@@ -7,10 +7,11 @@
 //   3. a cut reply (the output limit) is read as far as it goes (game/replyJson.ts parsePartialJson) and written back in the
 //      canonical form, so what is stored and sent back to Claude is always a complete, valid JSON object.
 import { canonicalReplyJson, parsePartialJson, readReplyValue, toSegments } from '../src/game/replyJson.ts';
-import type { ChatSegment } from '../src/game/claudeProtocol.ts';
+import type { ChatSegment, TargetLanguage } from '../src/game/claudeProtocol.ts';
 import { fillReadings } from './readings.ts';
 
 const JA = /<ja>([\s\S]*?)<\/ja>/g;
+const EN = /<en>([\s\S]*?)<\/en>/g;
 const KANA = /[\u3040-\u30ff\uff66-\uff9d]/;
 const HAN = /\p{Script=Han}/gu;
 /**
@@ -22,7 +23,7 @@ const HAN = /\p{Script=Han}/gu;
  */
 const JA_RUN = /(?:(?<=^|[\s「『（(［\[“"'])[\p{Script=Han}々〆ヶ]{1,4}(?=[\u3040-\u30ff\uff66-\uff9d]))?[\u3040-\u30ff\uff66-\uff9d](?:[\u3040-\u30ff\uff66-\uff9d\p{Script=Han}々〆ヶ]*[\u3040-\u30ff\uff66-\uff9d])?[、。！？…・]*/gu;
 
-export type FixOptions = { log?: (msg: string) => void };
+export type FixOptions = { log?: (msg: string) => void; targetLanguage?: TargetLanguage };
 
 /** the text outside every <ja>…</ja>, after applying fn to each such piece */
 function mapOutsideJa(text: string, fn: (s: string) => string): string {
@@ -53,6 +54,19 @@ export function isChineseTip(tip: string): boolean {
   let outside = '';
   mapOutsideJa(tip, (s) => { outside += s; return s; });
   return !KANA.test(outside) && (outside.match(HAN)?.length ?? 0) >= 2;
+}
+
+/** An English-mode tip is Chinese when at least two Chinese characters appear outside <en>…</en> / <ja>…</ja>. */
+export function isChineseEnTip(tip: string): boolean {
+  const outside = tip.replace(EN, '').replace(JA, '');
+  return (outside.match(HAN)?.length ?? 0) >= 2;
+}
+
+/** An English-mode tip needs background rewrite when it is non-empty and lacks Chinese explanation outside <en>…</en>. */
+export function needsEnTipRewrite(tip: string): boolean {
+  const t = tip.trim();
+  if (!t) return false;
+  return !isChineseEnTip(t);
 }
 
 /** Chinese characters a Chinese explanation needs before quoted Japanese alone stops counting as "a Japanese tip" */
@@ -90,6 +104,19 @@ export async function fixReplyJson(raw: string, opts: FixOptions = {}): Promise<
   if (value === undefined) log(`[reply] no readable JSON in the reply (${raw.length} chars), sent empty`);
   else if (!strict) log(`[reply] reply cut or not valid JSON, the readable part is kept (${raw.length} chars)`);
   const fields = readReplyValue(value);
+  if (opts.targetLanguage === 'en') {
+    const segments: ChatSegment[] = toSegments(fields).map((s) => ({
+      lang: s.lang,
+      text: s.text,
+      gloss: s.gloss,
+    }));
+    const tip = fields.tip.trim();
+    const tipRewrite = needsEnTipRewrite(tip);
+    return {
+      json: canonicalReplyJson({ segments, tip, tipLevel: tip ? fields.tipLevel : undefined, tone: fields.tone }),
+      tipRewrite,
+    };
+  }
   const segments: ChatSegment[] = [];
   for (const s of toSegments(fields)) {
     const text = s.lang === 'ja' ? await withReadings(s.text, log) : s.text;

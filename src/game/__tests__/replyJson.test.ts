@@ -47,9 +47,16 @@ describe('readReplyValue: the fields, each checked', () => {
     expect(readReplyValue(null)).toEqual({ segments: [], tip: '', tone: undefined });
   });
   it('a segment with an unknown lang keeps its text but has no lang (it is not voiced, not stored)', () => {
-    const f = readReplyValue({ segments: [{ lang: 'en', text: 'hi' }, { lang: 'ja', text: 'はい', gloss: '好' }] });
-    expect(f.segments).toEqual([{ lang: undefined, text: 'hi', gloss: '' }, { lang: 'ja', text: 'はい', gloss: '好' }]);
-    expect(toSegments(f)).toEqual([{ lang: 'ja', text: 'はい', gloss: '好' }]);
+    const f = readReplyValue({ segments: [{ lang: 'fr', text: 'bonjour' }, { lang: 'en', text: 'hi', gloss: '嗨' }, { lang: 'ja', text: 'はい', gloss: '好' }] });
+    expect(f.segments).toEqual([
+      { lang: undefined, text: 'bonjour', gloss: '' },
+      { lang: 'en', text: 'hi', gloss: '嗨' },
+      { lang: 'ja', text: 'はい', gloss: '好' },
+    ]);
+    expect(toSegments(f)).toEqual([
+      { lang: 'en', text: 'hi', gloss: '嗨' },
+      { lang: 'ja', text: 'はい', gloss: '好' },
+    ]);
   });
   it('a valid tone is kept', () => {
     expect(readReplyValue({ segments: [], tip: '', tone: 'sad' }).tone).toBe('sad');

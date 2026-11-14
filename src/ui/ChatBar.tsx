@@ -34,8 +34,8 @@ export interface ChatBarProps {
   notes?: (string | false | null | undefined)[];
   /** the 語音對話 status pill (shown when given) */
   pill?: { phase: string; label: string; onStop: () => void };
-  /** the 日 / 中 speech-language toggle (shown when given) */
-  stt?: { lang: string; title?: string; onToggle: () => void };
+  /** the 日/英 / 中 speech-language toggle (shown when given) */
+  stt?: { lang: string; targetLang?: 'ja' | 'en'; title?: string; onToggle: () => void };
   voice: { active: boolean; disabled?: boolean; onToggle: () => void };
   mic: { listening: boolean; supported: boolean; onToggle: () => void };
   /** 換她開話題 (shown when given) */
@@ -72,12 +72,23 @@ export function ChatBar(p: ChatBarProps) {
           {/* stands in for the input while it is lifted out of the way of iOS's focus scroll (useIOSKeyboard) */}
           <span className="as-ghost" aria-hidden="true">{value || p.ghostHint || placeholder}</span>
         </span>
-        {p.stt && (
-          <button type="button" className="as-stt" aria-label={p.stt.lang === 'ja-JP' ? '辨識語言：日文，點一下改中文' : '辨識語言：中文，點一下改日文'}
-            title={p.stt.title} onClick={p.stt.onToggle}>
-            {p.stt.lang === 'ja-JP' ? '日' : '中'}
-          </button>
-        )}
+        {p.stt && (() => {
+          const isEnTarget = p.stt.targetLang === 'en' || p.stt.lang.startsWith('en-');
+          const isTargetStt = p.stt.lang === 'ja-JP' || p.stt.lang.startsWith('en-');
+          const targetWord = isEnTarget ? '英文' : '日文';
+          const targetShort = isEnTarget ? '英' : '日';
+          return (
+            <button
+              type="button"
+              className="as-stt"
+              aria-label={isTargetStt ? `辨識語言：${targetWord}，點一下改中文` : `辨識語言：中文，點一下改${targetWord}`}
+              title={p.stt.title}
+              onClick={p.stt.onToggle}
+            >
+              {isTargetStt ? targetShort : '中'}
+            </button>
+          );
+        })()}
         <button type="button" className={voice.active ? 'as-voice on' : 'as-voice'} aria-label={voice.active ? '結束語音對話' : '語音對話'}
           aria-pressed={voice.active} aria-disabled={voice.disabled || undefined} title="語音對話：她會出聲回覆，然後再聽你說"
           onClick={voice.onToggle}><IconTalk /></button>

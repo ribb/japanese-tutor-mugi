@@ -4,6 +4,7 @@
 //   GET  /api/tts/status → { azure, google, voicevox, voices }   azure / google / voicevox = usable now
 //   POST /api/tts        → audio/mpeg (azure, google) or audio/wav (voicevox)   body { engine, voice, text, rate, pitch }
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { loadEnv, type Plugin } from 'vite';
 import { billedChars, crossesThreshold, freeOf, GOOGLE_FALLBACK_CHAIN, getUsageStore, googleTier, ttsBucket, type UsageStore } from './usage.ts';
 import { getTtsCache, type TtsAudioExt, type TtsCache } from './ttsCache.ts';
@@ -11,10 +12,10 @@ import { createVoicevoxProcess, defaultVoicevoxDeps, voicevoxRoute } from './voi
 import { encodeVisemes, recalledVisemes, rememberVisemes, type Viseme } from './visemes.ts';
 import { checkApiRequest, guardApi, guardOptionsFrom, type GuardOptions } from './apiGuard.ts';
 
-export type TtsEngine = 'azure' | 'google' | 'voicevox';
+export type TtsEngine = 'edge' | 'azure' | 'google' | 'voicevox';
 /** lang is the locale (Azure style, cmn-TW is zh-TW): what the server picks the closest Google / Azure voice by */
 export type TtsVoice = { id: string; label: string; lang: string; character?: string };
-export type TtsVoiceSet = { zh: TtsVoice[]; ja: TtsVoice[] };
+export type TtsVoiceSet = { zh: TtsVoice[]; ja: TtsVoice[]; en: TtsVoice[] };
 export type TtsBody = { engine: TtsEngine; voice: string; text: string; rate: number; pitch: number };
 export type TtsConfig = { azureKey: string; azureRegion: string; googleKey: string };
 
@@ -23,7 +24,24 @@ export type TtsConfig = { azureKey: string; azureRegion: string; googleKey: stri
  * VOICEVOX has no fixed list: its styles come from the running engine (voicevoxStatus), so its lists here are empty.
  */
 export const TTS_VOICES: Record<TtsEngine, TtsVoiceSet> = {
-  voicevox: { zh: [], ja: [] },
+  voicevox: { zh: [], ja: [], en: [] },
+  edge: {
+    zh: [
+      { id: 'zh-TW-HsiaoChenNeural', label: '曉臻・台灣女聲 (Edge 免費)', lang: 'zh-TW' },
+      { id: 'zh-TW-HsiaoYuNeural', label: '曉雨・台灣女聲 (Edge 免費)', lang: 'zh-TW' },
+      { id: 'zh-TW-YunJheNeural', label: '允哲・台灣男聲 (Edge 免費)', lang: 'zh-TW' },
+    ],
+    ja: [
+      { id: 'ja-JP-NanamiNeural', label: '七海・女聲 (Edge 免費)', lang: 'ja-JP' },
+      { id: 'ja-JP-KeitaNeural', label: '圭太・男聲 (Edge 免費)', lang: 'ja-JP' },
+    ],
+    en: [
+      { id: 'en-US-JennyNeural', label: 'Jenny・美式女聲 (Edge 免費)', lang: 'en-US' },
+      { id: 'en-US-AriaNeural', label: 'Aria・美式女聲 (Edge 免費)', lang: 'en-US' },
+      { id: 'en-US-GuyNeural', label: 'Guy・美式男聲 (Edge 免費)', lang: 'en-US' },
+      { id: 'en-GB-SoniaNeural', label: 'Sonia・英式女聲 (Edge 免費)', lang: 'en-GB' },
+    ],
+  },
   azure: {
     zh: [
       { id: 'zh-TW-HsiaoChenNeural', label: '曉臻・台灣女聲', lang: 'zh-TW' },
@@ -38,6 +56,12 @@ export const TTS_VOICES: Record<TtsEngine, TtsVoiceSet> = {
       { id: 'ja-JP-ShioriNeural', label: '栞', lang: 'ja-JP' },
       { id: 'ja-JP-KeitaNeural', label: '圭太（男聲）', lang: 'ja-JP' },
       { id: 'ja-JP-DaichiNeural', label: '大智（男聲）', lang: 'ja-JP' },
+    ],
+    en: [
+      { id: 'en-US-JennyNeural', label: 'Jenny・美式女聲', lang: 'en-US' },
+      { id: 'en-US-AriaNeural', label: 'Aria・美式女聲', lang: 'en-US' },
+      { id: 'en-US-GuyNeural', label: 'Guy・美式男聲', lang: 'en-US' },
+      { id: 'en-GB-SoniaNeural', label: 'Sonia・英式女聲', lang: 'en-GB' },
     ],
   },
   google: {
@@ -54,6 +78,14 @@ export const TTS_VOICES: Record<TtsEngine, TtsVoiceSet> = {
       { id: 'ja-JP-Neural2-C', label: '男聲 Neural2 C', lang: 'ja-JP' },
       { id: 'ja-JP-Neural2-D', label: '男聲 Neural2 D', lang: 'ja-JP' },
       { id: 'ja-JP-Wavenet-C', label: '男聲 WaveNet C', lang: 'ja-JP' },
+    ],
+    en: [
+      { id: 'en-US-Neural2-F', label: '美式女聲 Neural2 F', lang: 'en-US' },
+      { id: 'en-US-Neural2-D', label: '美式男聲 Neural2 D', lang: 'en-US' },
+      { id: 'en-US-Wavenet-F', label: '美式女聲 WaveNet F', lang: 'en-US' },
+      { id: 'en-US-Wavenet-D', label: '美式男聲 WaveNet D', lang: 'en-US' },
+      { id: 'en-US-Standard-F', label: '美式女聲 標準 F', lang: 'en-US' },
+      { id: 'en-US-Standard-D', label: '美式男聲 標準 D', lang: 'en-US' },
     ],
   },
 };
@@ -98,7 +130,7 @@ export function readTtsConfig(root: string, mode: string): TtsConfig {
  * whether it runs is checked by its status probe and by each synthesis (down → 503 voicevox_down).
  */
 export function engineConfigured(c: TtsConfig, engine: TtsEngine): boolean {
-  if (engine === 'voicevox') return true;
+  if (engine === 'voicevox' || engine === 'edge') return true;
   if (engine === 'azure') return !!c.azureKey && /^[a-z0-9-]+$/i.test(c.azureRegion);
   return !!c.googleKey;
 }
@@ -111,19 +143,20 @@ export type VoicevoxInfo = { up: boolean; voices: TtsVoice[] };
  */
 export function ttsStatus(c: TtsConfig, vv: VoicevoxInfo = { up: false, voices: [] }) {
   return {
+    edge: true,
     azure: engineConfigured(c, 'azure'),
     google: engineConfigured(c, 'google'),
     voicevox: vv.up,
     voices: {
       ...TTS_VOICES,
-      voicevox: { zh: [], ja: vv.up ? vv.voices : [] },
+      voicevox: { zh: [], ja: vv.up ? vv.voices : [], en: [] },
     },
   };
 }
 
 export function findVoice(engine: TtsEngine, id: string): TtsVoice | undefined {
   const set = TTS_VOICES[engine];
-  return [...set.zh, ...set.ja].find((v) => v.id === id);
+  return [...set.zh, ...set.ja, ...set.en].find((v) => v.id === id);
 }
 
 /** a VOICEVOX voice id is a style id: a short number (the engine checks that it exists) */
@@ -142,7 +175,7 @@ export const azureLang = (lang: string): string => lang.replace(/^cmn-/, 'zh-');
 
 /** the language (Azure style) of a voice id from either allowlist, or undefined for an unknown id */
 function voiceLang(voice: string): string | undefined {
-  const v = findVoice('google', voice) ?? findVoice('azure', voice);
+  const v = findVoice('google', voice) ?? findVoice('azure', voice) ?? findVoice('edge', voice);
   return v ? azureLang(v.lang) : undefined;
 }
 
@@ -159,7 +192,7 @@ export function googleVoiceFor(voice: string, tier: string): TtsVoice | undefine
   const letter = voice.slice(-1);
   let best: TtsVoice | undefined;
   let bestScore = -1;
-  for (const v of [...TTS_VOICES.google.zh, ...TTS_VOICES.google.ja]) {
+  for (const v of [...TTS_VOICES.google.zh, ...TTS_VOICES.google.ja, ...TTS_VOICES.google.en]) {
     if (googleTier(v.id) !== tier || azureLang(v.lang).split('-')[0] !== family) continue;
     const score = (azureLang(v.lang) === lang ? 2 : 0) + (fromGoogle && v.id.slice(-1) === letter ? 1 : 0);
     if (score > bestScore) {
@@ -177,7 +210,7 @@ export function azureVoiceFor(voice: string): TtsVoice | undefined {
   const lang = voiceLang(voice);
   if (!lang) return undefined;
   const family = lang.split('-')[0];
-  const list = [...TTS_VOICES.azure.zh, ...TTS_VOICES.azure.ja];
+  const list = [...TTS_VOICES.azure.zh, ...TTS_VOICES.azure.ja, ...TTS_VOICES.azure.en];
   return list.find((v) => v.lang === lang) ?? list.find((v) => v.lang.split('-')[0] === family);
 }
 
@@ -231,7 +264,9 @@ export function parseTtsBody(raw: string): TtsBody {
   try { j = JSON.parse(raw); } catch { throw new TtsError(400, 'bad_request', '請求不是合法的 JSON'); }
   if (!j || typeof j !== 'object') throw new TtsError(400, 'bad_request', '請求內容錯誤');
   const b = j as Record<string, unknown>;
-  if (b.engine !== 'azure' && b.engine !== 'google' && b.engine !== 'voicevox') throw new TtsError(400, 'bad_request', 'engine 只能是 azure、google 或 voicevox');
+  if (b.engine !== 'edge' && b.engine !== 'azure' && b.engine !== 'google' && b.engine !== 'voicevox') {
+    throw new TtsError(400, 'bad_request', 'engine 只能是 edge、azure、google 或 voicevox');
+  }
   const engine: TtsEngine = b.engine;
   const knownVoice = engine === 'voicevox'
     ? typeof b.voice === 'string' && isVoicevoxStyle(b.voice)
@@ -342,8 +377,8 @@ export async function answerTts(body: TtsBody, deps: TtsDeps): Promise<TtsAnswer
   let use: TtsBody = body;
   let requestedTier = ttsBucket(body.engine, body.voice).tier;
   let buf = await readCopy(cache, cacheKey(body), audioExtOf(body.engine));
-  if (!buf && body.engine !== 'voicevox') {
-    // VOICEVOX has no allowance, so it never plans a fallback: it is synthesized as asked (or refused when down)
+  if (!buf && body.engine !== 'voicevox' && body.engine !== 'edge') {
+    // VOICEVOX and Edge have no allowance cap, so they never plan a fallback: they are synthesized as asked
     const plan = planTts(body, charsFor, (e, t) => usage.ttsUsed(e, t), deps.azureConfigured);
     requestedTier = plan.requestedTier;
     if (plan.kind === 'browser') {
@@ -561,9 +596,55 @@ export async function cloudSynthesize(
   return body;
 }
 
+export type EdgeTtsClient = {
+  setMetadata(voiceName: string, outputFormat: OUTPUT_FORMAT): Promise<void>;
+  toStream(input: string, options?: { rate?: string; pitch?: string }): { audioStream: NodeJS.ReadableStream };
+  close(): void;
+};
+
+/** Free Edge neural TTS synthesis via msedge-tts (no API key required). */
+export async function edgeSynthesize(
+  voice: string,
+  text: string,
+  rate: number,
+  pitch: number,
+  timeoutMs: number = CLOUD_TTS_CALL_MS,
+  createClient: () => EdgeTtsClient = () => new MsEdgeTTS({ connectionTimeoutMs: 10_000, synthesisTimeoutMs: timeoutMs }),
+): Promise<Buffer> {
+  const v = findVoice('edge', voice);
+  if (!v) throw new Error('voice not in the allowlist');
+  const tts = createClient();
+  try {
+    await tts.setMetadata(v.id, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    const { audioStream } = tts.toStream(escapeXml(text), {
+      rate: pct(rate - 1),
+      pitch: pct((pitch - 1) * 0.5),
+    });
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new TtsError(502, 'upstream', 'Edge 語音合成逾時')), timeoutMs);
+      audioStream.on('data', (chunk: Buffer | Uint8Array) => chunks.push(Buffer.from(chunk)));
+      audioStream.on('end', () => { clearTimeout(timer); resolve(); });
+      audioStream.on('close', () => { clearTimeout(timer); resolve(); });
+      audioStream.on('error', (err: unknown) => { clearTimeout(timer); reject(err); });
+    });
+    const out = Buffer.concat(chunks);
+    if (out.length === 0) throw new TtsError(502, 'upstream', 'Edge 語音合成無音訊資料');
+    return out;
+  } catch (e) {
+    if (e instanceof TtsError) throw e;
+    throw new TtsError(502, 'upstream', '連不上 Edge 語音服務');
+  } finally {
+    try { tts.close(); } catch { /* ignore */ }
+  }
+}
+
 async function synthesize(c: TtsConfig, b: TtsBody): Promise<Buffer> {
   if (b.engine === 'voicevox') {
     return voicevoxQueued(() => voicevoxSynthesize(voicevoxUrl(), b.voice, b.text));
+  }
+  if (b.engine === 'edge') {
+    return edgeSynthesize(b.voice, b.text, b.rate, b.pitch);
   }
   return cloudSynthesize(c, b);
 }

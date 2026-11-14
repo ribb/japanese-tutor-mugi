@@ -13,7 +13,7 @@ import { setVoiceSource, type VoiceSource } from './voiceBus';
 import { cloudDefaultVoice, cloudStatus, cloudVoiceList, createCloudIo, type CloudEngine } from './cloudTts';
 import type { SpeakPlan } from './characterVoice';
 
-export type Lang = 'zh' | 'ja';
+export type Lang = 'zh' | 'ja' | 'en';
 /** the voice engine: the device's own speech, or a cloud service (its key lives on the PC, see server/tts.ts) */
 export type TtsEngine = 'browser' | CloudEngine;
 /**
@@ -21,15 +21,16 @@ export type TtsEngine = 'browser' | CloudEngine;
  * voice's name or a cloud voice's id; a missing or '' entry means that engine's automatic / default voice.
  */
 export type LangVoice = { engine: TtsEngine; rate: number; pitch: number; voices: Partial<Record<TtsEngine, string>> };
-export type TtsSettings = { on: boolean; zh: LangVoice; ja: LangVoice };
+export type TtsSettings = { on: boolean; zh: LangVoice; ja: LangVoice; en: LangVoice };
 
 /**
  * The engines each language's picker offers. VOICEVOX (a local engine on this PC) is offered for Japanese only; it is
- * greyed out while the engine is not running (the status says so). A further engine is one more entry here.
+ * greyed out while the engine is not running (the status says so). Edge is free and needs no API key.
  */
 export const ENGINE_CHOICES: Record<Lang, readonly { engine: TtsEngine; label: string }[]> = {
-  zh: [{ engine: 'browser', label: 'iPhone 內建' }, { engine: 'azure', label: 'Azure' }, { engine: 'google', label: 'Google' }],
-  ja: [{ engine: 'browser', label: 'iPhone 內建' }, { engine: 'azure', label: 'Azure' }, { engine: 'google', label: 'Google' }, { engine: 'voicevox', label: 'VOICEVOX' }],
+  zh: [{ engine: 'browser', label: 'iPhone 內建' }, { engine: 'edge', label: 'Edge 免費' }, { engine: 'azure', label: 'Azure' }, { engine: 'google', label: 'Google' }],
+  ja: [{ engine: 'browser', label: 'iPhone 內建' }, { engine: 'edge', label: 'Edge 免費' }, { engine: 'azure', label: 'Azure' }, { engine: 'google', label: 'Google' }, { engine: 'voicevox', label: 'VOICEVOX' }],
+  en: [{ engine: 'browser', label: 'iPhone 內建' }, { engine: 'edge', label: 'Edge 免費' }, { engine: 'azure', label: 'Azure' }, { engine: 'google', label: 'Google' }],
 };
 
 const KEY = 'mugi.tts.v2';
@@ -47,21 +48,22 @@ const clampRate = (r: number) => +snap(Math.min(TTS_RATE_RANGE.max, Math.max(TTS
 const clampPitch = (p: number) => +snap(Math.min(TTS_PITCH_RANGE.max, Math.max(TTS_PITCH_RANGE.min, p))).toFixed(2);
 const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
-const ENGINES: readonly TtsEngine[] = ['browser', 'azure', 'google', 'voicevox'];
-const engineOf = (v: unknown): TtsEngine => (ENGINES.includes(v as TtsEngine) ? (v as TtsEngine) : 'browser');
+const ENGINES: readonly TtsEngine[] = ['browser', 'edge', 'azure', 'google', 'voicevox'];
+const engineOf = (v: unknown, fallback: TtsEngine = 'browser'): TtsEngine =>
+  ENGINES.includes(v as TtsEngine) ? (v as TtsEngine) : fallback;
 
 /**
  * one language's settings with the numbers clamped and the voice names as strings. VOICEVOX is Japanese only: a Chinese
- * line saved with it (not offered by the picker) becomes the device voice.
+ * or English line saved with it (not offered by the picker) becomes the fallback engine.
  */
-function normLang(v: unknown, lang: Lang, fallbackEngine: TtsEngine = 'browser'): LangVoice {
+function normLang(v: unknown, lang: Lang, fallbackEngine: TtsEngine = lang === 'en' ? 'edge' : 'browser'): LangVoice {
   const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
   const vs = (o.voices && typeof o.voices === 'object' ? o.voices : {}) as Record<string, unknown>;
   const voices: Partial<Record<TtsEngine, string>> = {};
   for (const e of ENGINES) if (str(vs[e])) voices[e] = str(vs[e]);
-  const engine = o.engine === undefined ? fallbackEngine : engineOf(o.engine);
+  const engine = o.engine === undefined ? fallbackEngine : engineOf(o.engine, fallbackEngine);
   return {
-    engine: lang === 'zh' && engine === 'voicevox' ? 'browser' : engine,
+    engine: lang !== 'ja' && engine === 'voicevox' ? fallbackEngine : engine,
     rate: clampRate(num(o.rate, DEFAULT_RATE)),
     pitch: clampPitch(num(o.pitch, DEFAULT_PITCH)),
     voices,
@@ -69,25 +71,27 @@ function normLang(v: unknown, lang: Lang, fallbackEngine: TtsEngine = 'browser')
 }
 
 /**
- * Settings as saved. The per-language shape (zh / ja) is taken as it is. The older one-engine shape (one engine, rate
- * and pitch, and the voice names per language) applies the same engine, rate and pitch to both languages.
+ * Settings as saved. The per-language shape (zh / ja / en) is taken as it is. The older one-engine shape (one engine, rate
+ * and pitch, and the voice names per language) applies the same engine, rate and pitch to zh and ja, while en defaults to edge.
  */
 export function migrateTtsSettings(raw: unknown): TtsSettings {
   const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const on = typeof s.on === 'boolean' ? s.on : true;
   if (s.zh && typeof s.zh === 'object' && s.ja && typeof s.ja === 'object') {
-    return { on, zh: normLang(s.zh, 'zh'), ja: normLang(s.ja, 'ja') };
+    return { on, zh: normLang(s.zh, 'zh'), ja: normLang(s.ja, 'ja'), en: normLang(s.en, 'en', 'edge') };
   }
   const engine = engineOf(s.engine);
   const one = (lang: Lang): LangVoice => normLang({
-    engine,
+    engine: lang === 'en' && s.engine === undefined ? 'edge' : engine,
     rate: s.rate,
     pitch: s.pitch,
     voices: lang === 'zh'
       ? { browser: s.zhVoice, azure: s.azureZh, google: s.googleZh }
-      : { browser: s.jaVoice, azure: s.azureJa, google: s.googleJa },
-  }, lang);
-  return { on, zh: one('zh'), ja: one('ja') };
+      : lang === 'ja'
+        ? { browser: s.jaVoice, azure: s.azureJa, google: s.googleJa }
+        : {},
+  }, lang, lang === 'en' ? 'edge' : 'browser');
+  return { on, zh: one('zh'), ja: one('ja'), en: one('en') };
 }
 
 export const TTS_DEFAULTS: TtsSettings = migrateTtsSettings({});
@@ -107,11 +111,11 @@ const settingsListeners = new Set<(s: TtsSettings) => void>();
 export const getTtsSettings = (): TtsSettings => settings;
 export const langSettings = (lang: Lang): LangVoice => settings[lang];
 export function setTtsSettings(patch: Partial<TtsSettings>) {
-  const before = `${settings.zh.engine}|${settings.ja.engine}`;
+  const before = `${settings.zh.engine}|${settings.ja.engine}|${settings.en.engine}`;
   settings = migrateTtsSettings({ ...settings, ...patch });
   try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* private mode */ }
   // switching an engine mid-reply would mix two voices: the speech in progress is dropped
-  if (`${settings.zh.engine}|${settings.ja.engine}` !== before) queue.stop();
+  if (`${settings.zh.engine}|${settings.ja.engine}|${settings.en.engine}` !== before) queue.stop();
   settingsListeners.forEach((l) => l(settings));
 }
 /** changes one language's settings (its engine, rate, pitch or voices) and keeps the other language as it is */
@@ -132,7 +136,7 @@ const cloudSupported = (): boolean =>
 /** a language's chosen engine can speak here: the browser's speechSynthesis, or fetch + Web Audio for the cloud engines */
 const langAvailable = (lang: Lang): boolean => (settings[lang].engine === 'browser' ? ttsSupported() : cloudSupported());
 /** at least one language can be spoken */
-export const ttsAvailable = (): boolean => langAvailable('zh') || langAvailable('ja');
+export const ttsAvailable = (): boolean => langAvailable('zh') || langAvailable('ja') || langAvailable('en');
 /** replies are spoken: the setting is on and the chosen engine can speak */
 export const ttsActive = (): boolean => settings.on && ttsAvailable();
 
@@ -165,8 +169,12 @@ export function takeSentences(buf: string): { sentences: string[]; rest: string 
   return { sentences, rest: buf.slice(last) };
 }
 
-/** kana → Japanese, otherwise Chinese (used when a chunk carries no explicit lang) */
-export const detectLang = (s: string): Lang => (/[぀-ヿ]/.test(s) ? 'ja' : 'zh');
+/** kana → Japanese, ASCII letters without Han → English, otherwise Chinese (used when a chunk carries no explicit lang) */
+export const detectLang = (s: string): Lang => {
+  if (/[぀-ヿ]/.test(s)) return 'ja';
+  if (/[A-Za-z]/.test(s) && !/\p{Script=Han}/u.test(s)) return 'en';
+  return 'zh';
+};
 
 export type Seg = { text: string; lang: Lang };
 
@@ -196,8 +204,12 @@ export class SentenceBuffer {
 // ---------- voices ----------
 export type VoiceLike = { name: string; lang: string };
 const norm = (l: string) => l.replace(/_/g, '-').toLowerCase();
-const LANG_PREFS: Record<Lang, string[]> = { zh: ['zh-tw', 'zh-hk', 'zh-cn', 'zh'], ja: ['ja-jp', 'ja'] };
-const FEMALE = /meijia|美佳|sin-?ji|ting-?ting|yating|hanhan|kyoko|o-?ren|nanami|xiaoxiao|xiaoyi|female|女/i;
+const LANG_PREFS: Record<Lang, string[]> = {
+  zh: ['zh-tw', 'zh-hk', 'zh-cn', 'zh'],
+  ja: ['ja-jp', 'ja'],
+  en: ['en-us', 'en-gb', 'en'],
+};
+const FEMALE = /meijia|美佳|sin-?ji|ting-?ting|yating|hanhan|kyoko|o-?ren|nanami|xiaoxiao|xiaoyi|samantha|jenny|aria|zira|victoria|karen|serena|female|女/i;
 /** high-quality (downloaded) iOS/Android voices: 「月（高音質）」「Enhanced」「Premium」 */
 const QUALITY = /premium|enhanced|高音質|高品質|增強|增强|优化/i;
 
@@ -246,10 +258,14 @@ export function onVoicesChanged(l: () => void): () => void {
 }
 
 /** names of the voices she will speak with (for the settings sheet) */
-export function voicePicks(): { zh: string | null; ja: string | null } {
-  if (!ttsSupported()) return { zh: null, ja: null };
+export function voicePicks(): { zh: string | null; ja: string | null; en: string | null } {
+  if (!ttsSupported()) return { zh: null, ja: null, en: null };
   const voices = window.speechSynthesis.getVoices();
-  return { zh: chosenVoice(voices, 'zh')?.name ?? null, ja: chosenVoice(voices, 'ja')?.name ?? null };
+  return {
+    zh: chosenVoice(voices, 'zh')?.name ?? null,
+    ja: chosenVoice(voices, 'ja')?.name ?? null,
+    en: chosenVoice(voices, 'en')?.name ?? null,
+  };
 }
 
 // ---------- queue ----------
@@ -293,7 +309,7 @@ export function createSpeechQueue(o: QueueOptions) {
       const rate = o.rate(lang);
       const base = o.pitch ? o.pitch(lang) : settings[lang].pitch;
       // a character's own voice: the device voice of hers is pitched by her plan (a male one is lower); cloud plans carry their voice
-      const sp = lang === 'ja' && speaker ? speaker : undefined;
+      const sp = (lang === 'ja' || lang === 'en') && speaker ? speaker : undefined;
       const pitch = sp?.kind === 'browser' ? +(base * sp.pitch).toFixed(2) : base;
       let ended = false;
       let wd: ReturnType<typeof setTimeout> | undefined;
@@ -411,7 +427,7 @@ const browserIo: SpeechIo = {
   speak(u) {
     const synth = window.speechSynthesis;
     const ut = new SpeechSynthesisUtterance(u.text);
-    ut.lang = u.lang === 'ja' ? 'ja-JP' : 'zh-TW';
+    ut.lang = u.lang === 'ja' ? 'ja-JP' : u.lang === 'en' ? 'en-US' : 'zh-TW';
     const v = chosenVoice(synth.getVoices(), u.lang);
     if (v) { ut.voice = v as SpeechSynthesisVoice; ut.lang = v.lang; }
     ut.rate = u.rate;
@@ -532,7 +548,11 @@ export function stopSpeaking() {
   queue.stop();
 }
 
-const SAMPLE: Record<Lang, string> = { zh: '你好，我是你的日語家教，今天想聊什麼呢？', ja: 'こんにちは、今日は何を話しましょうか。' };
+const SAMPLE: Record<Lang, string> = {
+  zh: '你好，我是你的日語家教，今天想聊什麼呢？',
+  ja: 'こんにちは、今日は何を話しましょうか。',
+  en: "Hi there! Let's practice English together.",
+};
 /** speak a sample line with the chosen voice, rate and pitch (the settings sheet's 試聽 button) */
 export function previewVoice(lang: Lang) {
   if (settings[lang].engine === 'browser' && !ttsSupported()) return;
